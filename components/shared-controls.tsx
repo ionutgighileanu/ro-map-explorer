@@ -60,7 +60,7 @@ export function Sub({ children }: { children: ReactNode }) {
 export interface FillConfig { enabled: boolean; color: string; opacity: number }
 export interface ShapeConfig { enabled: boolean; color: string; width: number }
 
-export const mkFill = (color = '#00e5ff'): FillConfig => ({ enabled: true, color, opacity: 0.4 })
+export const mkFill = (color = '#00e5ff'): FillConfig => ({ enabled: true, color, opacity: 1 })
 export const mkShape = (color = '#00e5ff'): ShapeConfig => ({ enabled: false, color, width: 2 })
 
 export function ShapeFillCtrl({ s, onChange }: { s: { filled: FillConfig; shape: ShapeConfig }; onChange: (s: { filled: FillConfig; shape: ShapeConfig }) => void }) {
