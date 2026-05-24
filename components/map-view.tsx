@@ -107,20 +107,24 @@ export default function MapView({ mapStyle, viewportMode }: MapViewProps) {
     })
   }, [scale, viewportMode])
 
-  const { w, h } = VIEWPORT_DIMS[viewportMode]
+  const dims32 = VIEWPORT_DIMS["32p"]
 
   return (
     <div
       ref={mapContainer}
-      style={{
-        position: "absolute",
-        width: w,
-        height: h,
-        top: "50%",
-        left: "50%",
-        transform: `translate(-50%, -50%) scale(${scale})`,
-        transformOrigin: "center center",
-      }}
+      style={
+        viewportMode === "16p"
+          ? { position: "absolute", inset: 0 }
+          : {
+              position: "absolute",
+              width: dims32.w,
+              height: dims32.h,
+              top: "50%",
+              left: "50%",
+              transform: `translate(-50%, -50%) scale(${scale})`,
+              transformOrigin: "center center",
+            }
+      }
     />
   )
 }

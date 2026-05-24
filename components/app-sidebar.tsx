@@ -4,7 +4,6 @@ import { useState, useRef, useEffect } from 'react'
 import { toast } from 'sonner'
 import { T, GP, FB, I } from '@/components/ui-constants'
 import type { ViewportMode } from '@/app/page'
-import { VIEWPORT_DIMS } from '@/components/map-view'
 import { Toggle } from '@/components/shared-controls'
 import { useMap } from '@/context/map-context'
 // Markers temporarily disabled - re-enable later
@@ -55,61 +54,35 @@ export default function AppSidebar({ collapsed, onCollapsedChange, mapStyle, onS
     return () => document.removeEventListener('mousedown', handler)
   }, [exportOpen])
 
-  const handleExport = async (format: 'png' | 'jpeg') => {
+  const handleExport = (format: 'png' | 'jpeg') => {
     if (!map || exporting) return
     setExporting(true)
     setExportOpen(false)
 
-    const { w, h } = VIEWPORT_DIMS[viewportMode]
-    const hiddenDiv = document.createElement('div')
-    hiddenDiv.style.cssText = `position:absolute;left:-9999px;top:0;width:${w}px;height:${h}px;overflow:hidden`
-    document.body.appendChild(hiddenDiv)
-
     try {
-      const mapboxgl = (await import('mapbox-gl')).default
+      const mimeType = format === 'png' ? 'image/png' : 'image/jpeg'
+      const dataURL = map.getCanvas().toDataURL(mimeType, 0.95)
 
-      const hiddenMap = new mapboxgl.Map({
-        container: hiddenDiv,
-        style: map.getStyle() as mapboxgl.StyleSpecification,
-        center: map.getCenter(),
-        zoom: map.getZoom(),
-        bearing: map.getBearing(),
-        pitch: map.getPitch(),
-        preserveDrawingBuffer: true,
-        interactive: false,
-        attributionControl: false,
+      const link = document.createElement('a')
+      link.download = `ro-map-${Date.now()}.${format}`
+      link.href = dataURL
+      link.click()
+
+      const container = map.getContainer()
+      const flash = document.createElement('div')
+      flash.style.cssText = 'position:absolute;inset:0;background:white;opacity:0.55;pointer-events:none;transition:opacity 0.4s ease;z-index:10'
+      container.appendChild(flash)
+      requestAnimationFrame(() => {
+        flash.style.opacity = '0'
+        setTimeout(() => flash.remove(), 450)
       })
 
-      hiddenMap.once('idle', () => {
-        const mimeType = format === 'png' ? 'image/png' : 'image/jpeg'
-        const dataURL = hiddenMap.getCanvas().toDataURL(mimeType, 0.95)
-
-        const link = document.createElement('a')
-        link.download = `ro-map-${Date.now()}.${format}`
-        link.href = dataURL
-        link.click()
-
-        hiddenMap.remove()
-        document.body.removeChild(hiddenDiv)
-        setExporting(false)
-
-        // Flash on map area
-        const container = map.getContainer()
-        const flash = document.createElement('div')
-        flash.style.cssText = 'position:absolute;inset:0;background:white;opacity:0.55;pointer-events:none;transition:opacity 0.4s ease;z-index:10'
-        container.appendChild(flash)
-        requestAnimationFrame(() => {
-          flash.style.opacity = '0'
-          setTimeout(() => flash.remove(), 450)
-        })
-
-        toast.success('Map exported successfully')
-      })
+      toast.success('Map exported successfully')
     } catch (err) {
       console.error('Export failed:', err)
-      if (document.body.contains(hiddenDiv)) document.body.removeChild(hiddenDiv)
-      setExporting(false)
       toast.error('Export failed')
+    } finally {
+      setExporting(false)
     }
   }
 
