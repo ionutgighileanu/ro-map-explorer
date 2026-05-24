@@ -13,6 +13,7 @@ import RoutePlannerModule from '@/components/modules/route-planner'
 import InfrastructureModule from '@/components/modules/infrastructure'
 import BordersModule from '@/components/modules/borders'
 import PhotoOverlayModule from '@/components/modules/photo-overlay'
+import LayoutModule from '@/components/modules/layout'
 
 type MapStyleType = "dark" | "satellite"
 
@@ -183,6 +184,7 @@ export default function AppSidebar({ collapsed, onCollapsedChange, mapStyle, onS
             <InfrastructureModule/>
             <BordersModule/>
             <PhotoOverlayModule/>
+            <LayoutModule/>
           </div>
 
           {/* Footer */}
