@@ -1,4 +1,13 @@
 {
+  "cleanupPeriodDays": 365,
+  "env": {
+    "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1",
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "80",
+    "BASH_MAX_OUTPUT_LENGTH": "60000",
+    "CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS": "50000",
+    "ENABLE_TOOL_SEARCH": "true"
+  },
+  "attribution": { "commit": "" },
   "permissions": {
     "allow": [
       "Bash(npm run:*)",

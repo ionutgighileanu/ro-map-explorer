@@ -19,11 +19,13 @@ const MapView = dynamic(() => import("@/components/map-view"), {
 })
 
 type MapStyleType = "dark" | "satellite"
+export type ViewportMode = "16p" | "32p"
 
 function PageInner() {
   const [mapStyle, setMapStyle] = useState<MapStyleType>("dark")
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [placeLabels, setPlaceLabels] = useState(true)
+  const [viewportMode, setViewportMode] = useState<ViewportMode>("16p")
   const { map, ready } = useMap()
 
   usePlaceLabels(map, ready, placeLabels)
@@ -38,7 +40,7 @@ function PageInner() {
 
   return (
     <main className="relative w-screen h-screen overflow-hidden">
-      <MapView mapStyle={mapStyle} />
+      <MapView mapStyle={mapStyle} viewportMode={viewportMode} />
       <AppSidebar
         collapsed={sidebarCollapsed}
         onCollapsedChange={setSidebarCollapsed}
@@ -48,6 +50,8 @@ function PageInner() {
         onZoomOut={handleZoomOut}
         placeLabels={placeLabels}
         onPlaceLabelsChange={setPlaceLabels}
+        viewportMode={viewportMode}
+        onViewportModeChange={setViewportMode}
       />
     </main>
   )

@@ -1,9 +1,10 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import mapboxgl from "mapbox-gl"
 import "mapbox-gl/dist/mapbox-gl.css"
 import { useMap } from "@/context/map-context"
+import type { ViewportMode } from "@/app/page"
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ""
 
@@ -29,17 +30,35 @@ const STYLES: Record<MapStyleType, string | mapboxgl.StyleSpecification> = {
   satellite: "mapbox://styles/mapbox/satellite-streets-v12",
 }
 
-interface MapViewProps {
-  mapStyle: MapStyleType
+export const VIEWPORT_DIMS: Record<ViewportMode, { w: number; h: number }> = {
+  "16p": { w: 1920, h: 1080 },
+  "32p": { w: 3840, h: 1080 },
 }
 
-export default function MapView({ mapStyle }: MapViewProps) {
+interface MapViewProps {
+  mapStyle: MapStyleType
+  viewportMode: ViewportMode
+}
+
+export default function MapView({ mapStyle, viewportMode }: MapViewProps) {
   const mapContainer = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const { setMap, setReady } = useMap()
   const appliedStyleRef = useRef<MapStyleType>(mapStyle)
+  const [scale, setScale] = useState(1)
 
-  // Initialize map once — cleanup only on unmount, never on style change
+  // Recompute scale whenever viewportMode or window size changes
+  useEffect(() => {
+    const compute = () => {
+      const { w, h } = VIEWPORT_DIMS[viewportMode]
+      setScale(Math.min(window.innerWidth / w, window.innerHeight / h))
+    }
+    compute()
+    window.addEventListener("resize", compute)
+    return () => window.removeEventListener("resize", compute)
+  }, [viewportMode])
+
+  // Initialize map once — cleanup only on unmount, never on style/viewport change
   useEffect(() => {
     if (!mapContainer.current) return
 
@@ -80,7 +99,28 @@ export default function MapView({ mapStyle }: MapViewProps) {
     mapRef.current.setStyle(STYLES[mapStyle])
   }, [mapStyle])
 
+  // Notify Mapbox of container resize after DOM updates
+  useEffect(() => {
+    if (!mapRef.current) return
+    requestAnimationFrame(() => {
+      mapRef.current?.resize()
+    })
+  }, [scale, viewportMode])
+
+  const { w, h } = VIEWPORT_DIMS[viewportMode]
+
   return (
-    <div ref={mapContainer} className="absolute inset-0 w-full h-full" />
+    <div
+      ref={mapContainer}
+      style={{
+        position: "absolute",
+        width: w,
+        height: h,
+        top: "50%",
+        left: "50%",
+        transform: `translate(-50%, -50%) scale(${scale})`,
+        transformOrigin: "center center",
+      }}
+    />
   )
 }

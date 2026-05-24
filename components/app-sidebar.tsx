@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { toast } from 'sonner'
 import { T, GP, FB, I } from '@/components/ui-constants'
+import type { ViewportMode } from '@/app/page'
+import { VIEWPORT_DIMS } from '@/components/map-view'
 import { Toggle } from '@/components/shared-controls'
 import { useMap } from '@/context/map-context'
 // Markers temporarily disabled - re-enable later
@@ -22,6 +24,8 @@ interface AppSidebarProps {
   onZoomOut: () => void
   placeLabels: boolean
   onPlaceLabelsChange: (value: boolean) => void
+  viewportMode: ViewportMode
+  onViewportModeChange: (mode: ViewportMode) => void
 }
 
 const nav = [
@@ -32,7 +36,7 @@ const nav = [
   {icon: I.hex(), l: 'Borders'},
 ]
 
-export default function AppSidebar({ collapsed, onCollapsedChange, mapStyle, onSetMapStyle, onZoomIn, onZoomOut, placeLabels, onPlaceLabelsChange }: AppSidebarProps) {
+export default function AppSidebar({ collapsed, onCollapsedChange, mapStyle, onSetMapStyle, onZoomIn, onZoomOut, placeLabels, onPlaceLabelsChange, viewportMode, onViewportModeChange }: AppSidebarProps) {
   const { map } = useMap()
   const [exportOpen, setExportOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
@@ -54,8 +58,9 @@ export default function AppSidebar({ collapsed, onCollapsedChange, mapStyle, onS
     setExporting(true)
     setExportOpen(false)
 
+    const { w, h } = VIEWPORT_DIMS[viewportMode]
     const hiddenDiv = document.createElement('div')
-    hiddenDiv.style.cssText = 'position:absolute;left:-9999px;top:0;width:1920px;height:1080px;overflow:hidden'
+    hiddenDiv.style.cssText = `position:absolute;left:-9999px;top:0;width:${w}px;height:${h}px;overflow:hidden`
     document.body.appendChild(hiddenDiv)
 
     try {
@@ -155,6 +160,19 @@ export default function AppSidebar({ collapsed, onCollapsedChange, mapStyle, onS
                 {I.panelClose()}
               </button>
             </div>
+          </div>
+
+          {/* Viewport mode selector */}
+          <div style={{display:'flex',gap:4,padding:'8px 12px',borderBottom:`1px solid ${T.glassBorder}`}}>
+            {(['16p','32p'] as const).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => onViewportModeChange(mode)}
+                style={{...FB(viewportMode === mode), flex:1, justifyContent:'center', gap:0, padding:'6px 0'}}
+              >
+                {mode}
+              </button>
+            ))}
           </div>
 
           {/* Scrollable modules */}
