@@ -12,17 +12,20 @@ export function useToggleSet(): [Set<string>, (id: string) => void] {
   return [s, (id: string) => set(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })]
 }
 
-export function Section({ title, icon, children, defaultOpen = false }: { title: string; icon: ReactNode; children: ReactNode; defaultOpen?: boolean }) {
+export function Section({ title, icon, children, defaultOpen = false, extra }: { title: string; icon: ReactNode; children: ReactNode; defaultOpen?: boolean; extra?: ReactNode }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
     <div style={{borderBottom:`1px solid ${T.glassBorder}`}}>
-      <button onClick={()=>setOpen(!open)} className="sec-btn" style={{display:'flex',alignItems:'center',justifyContent:'space-between',width:'100%',padding:'14px 20px',background:'none',border:'none',cursor:'pointer',color:T.muted}}>
-        <div style={{display:'flex',alignItems:'center',gap:10}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'14px 20px'}}>
+        <button onClick={()=>setOpen(!open)} className="sec-btn" style={{display:'flex',alignItems:'center',gap:10,flex:1,background:'none',border:'none',cursor:'pointer',color:T.muted,padding:0}}>
           <span style={{color:T.primary}}>{icon}</span>
           <span style={{fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'.08em'}}>{title}</span>
+        </button>
+        <div style={{display:'flex',alignItems:'center',gap:8}}>
+          {extra}
+          <span onClick={()=>setOpen(!open)} style={{transition:'transform .2s',transform:open?'rotate(0)':'rotate(-90deg)',display:'flex',cursor:'pointer',color:T.muted}}>{I.chevron()}</span>
         </div>
-        <span style={{transition:'transform .2s',transform:open?'rotate(0)':'rotate(-90deg)',display:'flex'}}>{I.chevron()}</span>
-      </button>
+      </div>
       {open && <div style={{padding:'0 20px 16px'}}>{children}</div>}
     </div>
   )
