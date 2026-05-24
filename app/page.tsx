@@ -4,7 +4,8 @@ import { useState, useCallback } from "react"
 import dynamic from "next/dynamic"
 import AppSidebar from "@/components/app-sidebar"
 import { MapProvider, useMap } from "@/context/map-context"
-import { usePlaceLabels } from "@/hooks/use-place-labels"
+import { useSatelliteControls } from "@/hooks/use-satellite-controls"
+import { defaultSatelliteSettings, type SatelliteSettings } from "@/components/satellite-controls"
 
 const MapView = dynamic(() => import("@/components/map-view"), {
   ssr: false,
@@ -24,11 +25,11 @@ export type ViewportMode = "16p" | "32p"
 function PageInner() {
   const [mapStyle, setMapStyle] = useState<MapStyleType>("dark")
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const [placeLabels, setPlaceLabels] = useState(true)
   const [viewportMode, setViewportMode] = useState<ViewportMode>("16p")
+  const [satelliteSettings, setSatelliteSettings] = useState<SatelliteSettings>(defaultSatelliteSettings)
   const { map, ready } = useMap()
 
-  usePlaceLabels(map, ready, placeLabels)
+  useSatelliteControls(map, ready, mapStyle, satelliteSettings)
 
   const handleZoomIn = useCallback(() => {
     map?.zoomIn({ duration: 300 })
@@ -48,10 +49,10 @@ function PageInner() {
         onSetMapStyle={setMapStyle}
         onZoomIn={handleZoomIn}
         onZoomOut={handleZoomOut}
-        placeLabels={placeLabels}
-        onPlaceLabelsChange={setPlaceLabels}
         viewportMode={viewportMode}
         onViewportModeChange={setViewportMode}
+        satelliteSettings={satelliteSettings}
+        onSatelliteSettingsChange={setSatelliteSettings}
       />
     </main>
   )

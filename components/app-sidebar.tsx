@@ -4,8 +4,8 @@ import { useState, useRef, useEffect } from 'react'
 import { toast } from 'sonner'
 import { T, GP, FB, I } from '@/components/ui-constants'
 import type { ViewportMode } from '@/app/page'
-import { Toggle } from '@/components/shared-controls'
 import { useMap } from '@/context/map-context'
+import SatelliteControls, { type SatelliteSettings } from '@/components/satellite-controls'
 // Markers temporarily disabled - re-enable later
 import StbRoutesModule from '@/components/modules/stb-routes'
 import RoutePlannerModule from '@/components/modules/route-planner'
@@ -23,10 +23,10 @@ interface AppSidebarProps {
   onSetMapStyle: (style: MapStyleType) => void
   onZoomIn: () => void
   onZoomOut: () => void
-  placeLabels: boolean
-  onPlaceLabelsChange: (value: boolean) => void
   viewportMode: ViewportMode
   onViewportModeChange: (mode: ViewportMode) => void
+  satelliteSettings: SatelliteSettings
+  onSatelliteSettingsChange: (s: SatelliteSettings) => void
 }
 
 const nav = [
@@ -37,7 +37,7 @@ const nav = [
   {icon: I.hex(), l: 'Borders'},
 ]
 
-export default function AppSidebar({ collapsed, onCollapsedChange, mapStyle, onSetMapStyle, onZoomIn, onZoomOut, placeLabels, onPlaceLabelsChange, viewportMode, onViewportModeChange }: AppSidebarProps) {
+export default function AppSidebar({ collapsed, onCollapsedChange, mapStyle, onSetMapStyle, onZoomIn, onZoomOut, viewportMode, onViewportModeChange, satelliteSettings, onSatelliteSettingsChange }: AppSidebarProps) {
   const { map } = useMap()
   const [exportOpen, setExportOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
@@ -196,13 +196,12 @@ export default function AppSidebar({ collapsed, onCollapsedChange, mapStyle, onS
             </div>
             <div style={{height:1,background:T.glassBorder,margin:'6px 0'}}/>
             <div style={{display:'flex',flexDirection:'column',gap:4}}>
-              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'6px 12px',background:T.secondary,borderRadius:8,border:`1px solid ${T.glassBorder}`}}>
-                <span style={{fontSize:12,fontWeight:500,color:placeLabels?T.fg:T.muted,transition:'color .2s'}}>Place Labels</span>
-                <Toggle label="" value={placeLabels} onChange={onPlaceLabelsChange}/>
-              </div>
               <button onClick={()=>onSetMapStyle('dark')} className="ft-btn" style={FB(mapStyle==='dark')}>{I.layers()}<span>Standard</span></button>
               <button onClick={()=>onSetMapStyle('satellite')} className="ft-btn" style={FB(mapStyle==='satellite')}>{I.sat()}<span>Satellite</span></button>
             </div>
+            {mapStyle === 'satellite' && (
+              <SatelliteControls settings={satelliteSettings} onChange={onSatelliteSettingsChange} />
+            )}
           </div>
 
         </div>
