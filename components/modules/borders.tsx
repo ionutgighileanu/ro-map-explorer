@@ -78,6 +78,9 @@ export default function BordersModule() {
   // Judete
   const [selJ, setSelJ] = useState('')
   const [jCol, setJCol] = useState('#76ff03')
+  const [jShapeCol, setJShapeCol] = useState('#76ff03')
+  const [jShapeWidth, setJShapeWidth] = useState(2)
+  const [jShapeEnabled, setJShapeEnabled] = useState(false)
   const [judete, setJudete] = useState<Judet[]>([])
   const [openBJudete, setOpenBJudete] = useState(false)
   const prevJudeteRef = useRef<Judet[]>([])
@@ -371,22 +374,33 @@ export default function BordersModule() {
 
   const handleGlobalJColor = (newColor: string) => {
     setJCol(newColor)
-    setJudete(p => p.map(j => ({
-      ...j,
-      filled: { ...j.filled, color: newColor },
-      shape: { ...j.shape, color: newColor },
-    })))
+    setJudete(p => p.map(j => ({ ...j, filled: { ...j.filled, color: newColor } })))
+  }
+
+  const handleGlobalJShapeEnabled = (v: boolean) => {
+    setJShapeEnabled(v)
+    setJudete(p => p.map(j => ({ ...j, shape: { ...j.shape, enabled: v } })))
+  }
+
+  const handleGlobalJShapeColor = (newColor: string) => {
+    setJShapeCol(newColor)
+    setJudete(p => p.map(j => ({ ...j, shape: { ...j.shape, color: newColor } })))
+  }
+
+  const handleGlobalJShapeWidth = (newWidth: number) => {
+    setJShapeWidth(newWidth)
+    setJudete(p => p.map(j => ({ ...j, shape: { ...j.shape, width: newWidth } })))
   }
 
   const addJ = () => {
     if (!selJ) return
-    setJudete(p => [...p, { id: Date.now().toString(), name: selJ, filled: mkFill(jCol), shape: mkShape(jCol) }])
+    setJudete(p => [...p, { id: Date.now().toString(), name: selJ, filled: mkFill(jCol), shape: { ...mkShape(jShapeCol), width: jShapeWidth, enabled: jShapeEnabled } }])
     setSelJ('')
   }
 
   const allJ = () => {
     const e = new Set(judete.map(j => j.name))
-    setJudete(p => [...p, ...JUDETE.filter(j => !e.has(j)).map(n => ({ id: `${Date.now()}-${n}`, name: n, filled: mkFill(jCol), shape: mkShape(jCol) }))])
+    setJudete(p => [...p, ...JUDETE.filter(j => !e.has(j)).map(n => ({ id: `${Date.now()}-${n}`, name: n, filled: mkFill(jCol), shape: { ...mkShape(jShapeCol), width: jShapeWidth, enabled: jShapeEnabled } }))])
   }
 
   const toggleSector = (id: string) => setSectors(p => p.map(s => s.id === id ? { ...s, enabled: !s.enabled } : s))
@@ -476,6 +490,17 @@ export default function BordersModule() {
             </select>
             <ColorPicker color={jCol} onChange={handleGlobalJColor}/>
             <button onClick={addJ} disabled={!selJ} className="add-btn" style={!selJ ? ABO : AB}>{I.plus()}</button>
+          </div>
+          <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:6}}>
+            <Toggle label="" value={jShapeEnabled} onChange={handleGlobalJShapeEnabled}/>
+            <span style={{fontSize:11,color:T.muted,whiteSpace:'nowrap'}}>Shape:</span>
+            <ColorPicker color={jShapeCol} onChange={handleGlobalJShapeColor}/>
+            <input
+              type="range" min={1} max={10} step={1} value={jShapeWidth}
+              onChange={e => handleGlobalJShapeWidth(Number(e.target.value))}
+              style={{flex:1,accentColor:T.primary,cursor:'pointer',height:4}}
+            />
+            <span style={{fontSize:11,color:T.muted,minWidth:24,textAlign:'right'}}>{jShapeWidth}px</span>
           </div>
           {judete.length > 0 && (
             <div style={{display:'flex',flexDirection:'column',gap:6,maxHeight:300,overflowY:'auto'}}>
