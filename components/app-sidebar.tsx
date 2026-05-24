@@ -13,6 +13,7 @@ import InfrastructureModule from '@/components/modules/infrastructure'
 import BordersModule from '@/components/modules/borders'
 import PhotoOverlayModule from '@/components/modules/photo-overlay'
 import LayoutModule from '@/components/modules/layout'
+import TempGeoJSONModule from '@/components/modules/temp-geojson'
 
 type MapStyleType = "dark" | "satellite"
 
@@ -158,6 +159,7 @@ export default function AppSidebar({ collapsed, onCollapsedChange, mapStyle, onS
             <BordersModule/>
             <PhotoOverlayModule/>
             <LayoutModule/>
+            <TempGeoJSONModule/>
           </div>
 
           {/* Footer */}
