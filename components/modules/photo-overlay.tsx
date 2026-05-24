@@ -125,7 +125,7 @@ export default function PhotoOverlayModule() {
 
         {/* Opacity slider + remove — only when an image is loaded */}
         {imageSrc && (
-          <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
+          <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8, marginTop: 8 }}>
             <SliderRow label="Opacity" value={opacity} onChange={setOpacity} min={0} max={1} step={0.01} />
             <button
               onClick={handleRemove}
