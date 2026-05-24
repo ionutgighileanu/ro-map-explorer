@@ -17,10 +17,75 @@ function ImgIcon() {
   )
 }
 
+const DEFAULT_TRANSFORM = { x: 0, y: 0, zoom: 0 }
+
+interface Transform { x: number; y: number; zoom: number }
+
+function TransformPanel({ opacity, onOpacity, transform, onTransform, isDefault, onReset }: {
+  opacity: number
+  onOpacity: (v: number) => void
+  transform: Transform
+  onTransform: (fn: (t: Transform) => Transform) => void
+  isDefault: boolean
+  onReset: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div style={{ borderRadius: 6, border: `1px solid ${T.glassBorder}`, overflow: 'hidden' }}>
+      {/* Header */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          width: '100%', padding: '7px 10px', background: 'rgba(40,44,70,0.5)',
+          border: 'none', cursor: 'pointer', color: T.muted,
+        }}
+      >
+        <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '.07em' }}>
+          Transform Controls
+        </span>
+        <span style={{ display: 'flex', transition: 'transform .2s', transform: open ? 'rotate(0deg)' : 'rotate(-90deg)' }}>
+          {I.chevron(12)}
+        </span>
+      </button>
+
+      {/* Body */}
+      {open && (
+        <div style={{ padding: '8px 10px', display: 'flex', flexDirection: 'column' as const, gap: 7, borderTop: `1px solid ${T.glassBorder}` }}>
+          <SliderRow label="Opacity" value={opacity} onChange={onOpacity} min={0} max={1} step={0.01} />
+          <SliderRow label="X Offset" value={transform.x} onChange={v => onTransform(t => ({ ...t, x: v }))} min={-150} max={150} step={5} />
+          <SliderRow label="Y Offset" value={transform.y} onChange={v => onTransform(t => ({ ...t, y: v }))} min={-150} max={150} step={5} />
+          <SliderRow label="Zoom" value={transform.zoom} onChange={v => onTransform(t => ({ ...t, zoom: v }))} min={-150} max={150} step={5} />
+          <button
+            onClick={onReset}
+            disabled={isDefault}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, width: '100%',
+              padding: '5px 10px', borderRadius: 5, marginTop: 1,
+              background: isDefault ? 'rgba(40,44,70,0.3)' : 'rgba(0,212,232,0.08)',
+              border: `1px solid ${isDefault ? T.glassBorder : 'rgba(0,212,232,0.25)'}`,
+              color: isDefault ? T.muted : T.primary,
+              fontSize: 11, cursor: isDefault ? 'default' : 'pointer',
+              opacity: isDefault ? 0.5 : 1,
+            }}
+          >
+            <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+              <path d="M3 3v5h5"/>
+            </svg>
+            Reset
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function PhotoOverlayModule() {
   const [enabled, setEnabled] = useState(false)
   const [imageSrc, setImageSrc] = useState<string | null>(null)
   const [opacity, setOpacity] = useState(0.5)
+  const [transform, setTransform] = useState(DEFAULT_TRANSFORM)
   const [dragging, setDragging] = useState(false)
   const [mounted, setMounted] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -50,24 +115,28 @@ export default function PhotoOverlayModule() {
     prevUrlRef.current = null
     setImageSrc(null)
     setEnabled(false)
+    setTransform(DEFAULT_TRANSFORM)
   }
+
+  const isDefaultTransform = transform.x === 0 && transform.y === 0 && transform.zoom === 0
 
   return (
     <>
-      {/* Fullscreen overlay — portalled to document.body, above map (z-40), below sidebar (z-20 is sidebar but overlay is pointer-events:none so OK) */}
+      {/* Fullscreen overlay — portalled to document.body, z-5 (behind header menus), pointer-events:none */}
       {mounted && enabled && imageSrc && createPortal(
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 40,
-            pointerEvents: 'none',
-            backgroundImage: `url(${imageSrc})`,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-            opacity,
-          }}
-        />,
+        <div style={{ position: 'fixed', inset: 0, zIndex: 5, pointerEvents: 'none', overflow: 'hidden', opacity }}>
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              backgroundImage: `url(${imageSrc})`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+              transform: `translate(${transform.x}%, ${transform.y}%) scale(${1 + transform.zoom / 100})`,
+              transformOrigin: 'center center',
+            }}
+          />
+        </div>,
         document.body
       )}
 
@@ -123,10 +192,18 @@ export default function PhotoOverlayModule() {
           </span>
         </div>
 
-        {/* Opacity slider + remove — only when an image is loaded */}
+        {/* Controls — only when an image is loaded */}
         {imageSrc && (
           <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8, marginTop: 8 }}>
-            <SliderRow label="Opacity" value={opacity} onChange={setOpacity} min={0} max={1} step={0.01} />
+
+            {/* Collapsible transform controls */}
+            <TransformPanel
+              opacity={opacity} onOpacity={setOpacity}
+              transform={transform} onTransform={setTransform}
+              isDefault={isDefaultTransform} onReset={() => setTransform(DEFAULT_TRANSFORM)}
+            />
+
+            {/* Remove button — always visible */}
             <button
               onClick={handleRemove}
               style={{
@@ -137,7 +214,7 @@ export default function PhotoOverlayModule() {
                 color: '#ff6060', fontSize: 11, cursor: 'pointer',
               }}
             >
-              {I.x(12)} Remove image
+              {I.x(12)} Remove
             </button>
           </div>
         )}
