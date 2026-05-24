@@ -52,11 +52,18 @@ function mkFilter(line: string, dir: Direction): any[] {
   return ['==', ['get', 'line'], line]
 }
 
+interface StbSuggestion { line: string; name: string }
+
 export default function StbRoutesModule() {
   const [sIn, setSIn] = useState('')
   const [stb, setStb] = useState<StbRoute[]>([])
   const [openS, togS] = useToggleSet()
   const [sourceLoaded, setSourceLoaded] = useState(false)
+  const [allRoutesSug, setAllRoutesSug] = useState<StbSuggestion[]>([])
+  const [stbSuggestions, setStbSuggestions] = useState<StbSuggestion[]>([])
+  const [showStbSug, setShowStbSug] = useState(false)
+  const [stbSugPos, setStbSugPos] = useState({ top: 0, left: 0, width: 0 })
+  const stbContainerRef = useRef<HTMLDivElement>(null)
   const prevStbRef = useRef<StbRoute[]>([])
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const validLinesRef = useRef<Set<string>>(new Set())
@@ -97,6 +104,17 @@ export default function StbRoutesModule() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const lines = new Set<string>(raw.features.map((f: any) => String(f.properties?.line)).filter(Boolean))
         validLinesRef.current = lines
+        // Build sorted suggestions list (unique by line)
+        const seen = new Set<string>()
+        const sug: StbSuggestion[] = []
+        for (const f of raw.features) {
+          const line = String(f.properties?.line ?? '')
+          if (!line || seen.has(line)) continue
+          seen.add(line)
+          sug.push({ line, name: String(f.properties?.name ?? f.properties?.long_name ?? '') })
+        }
+        sug.sort((a, b) => a.line.localeCompare(b.line, undefined, { numeric: true }))
+        setAllRoutesSug(sug)
         setSourceLoaded(true)
       })
       .catch(console.error)
@@ -202,6 +220,41 @@ export default function StbRoutesModule() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(stb), map, ready, sourceLoaded])
 
+  // Debounce STB suggestions
+  useEffect(() => {
+    const q = sIn.trim()
+    if (!q || q.includes(',')) { setStbSuggestions([]); setShowStbSug(false); return }
+    const t = setTimeout(() => {
+      const lower = q.toLowerCase()
+      const sw  = allRoutesSug.filter(r => r.line.toLowerCase().startsWith(lower) || r.name.toLowerCase().startsWith(lower))
+      const inc = allRoutesSug.filter(r => !sw.includes(r) && (r.line.toLowerCase().includes(lower) || r.name.toLowerCase().includes(lower)))
+      const result = [...sw, ...inc].slice(0, 5)
+      if (result.length > 0 && stbContainerRef.current) {
+        const rect = stbContainerRef.current.getBoundingClientRect()
+        setStbSugPos({ top: rect.bottom + 4, left: rect.left, width: rect.width })
+      }
+      setStbSuggestions(result)
+      setShowStbSug(result.length > 0)
+    }, 150)
+    return () => clearTimeout(t)
+  }, [sIn, allRoutesSug])
+
+  const handleAddFromSuggestion = (s: StbSuggestion) => {
+    const existingLines = new Set(stb.map(r => r.line))
+    if (existingLines.has(s.line)) { setSIn(''); setShowStbSug(false); return }
+    const r: StbRoute = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}-${s.line}`,
+      line: s.line,
+      style: mkLn(PRESETS[stb.length % PRESETS.length]),
+      direction: 'both',
+    }
+    setStb(p => [...p, r])
+    togS(r.id)
+    setSIn('')
+    setStbSuggestions([])
+    setShowStbSug(false)
+  }
+
   const handleAddRoute = () => {
     if (!sIn.trim()) return
     const existingLines = new Set(stb.map(r => r.line))
@@ -229,12 +282,36 @@ export default function StbRoutesModule() {
 
   return (
     <Section title="STB Routes" icon={I.bus()}>
-      <div style={{display:'flex',gap:8,marginBottom:10}}>
-        <div style={{position:'relative',flex:1}}>
-          <div style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',color:T.muted}}>{I.search()}</div>
-          <input value={sIn} onChange={e=>setSIn(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleAddRoute()} placeholder="Line number (e.g. 41, 205)" className="s-input" style={SI}/>
+      <div ref={stbContainerRef} style={{marginBottom:10}}>
+        <div style={{display:'flex',gap:8}}>
+          <div style={{position:'relative',flex:1}}>
+            <div style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',color:T.muted}}>{I.search()}</div>
+            <input
+              value={sIn}
+              onChange={e=>setSIn(e.target.value)}
+              onKeyDown={e=>{ if (e.key==='Enter') { stbSuggestions.length > 0 && !sIn.includes(',') ? handleAddFromSuggestion(stbSuggestions[0]) : handleAddRoute() } }}
+              onFocus={()=>{ if (stbSuggestions.length > 0 && stbContainerRef.current) { const r = stbContainerRef.current.getBoundingClientRect(); setStbSugPos({ top: r.bottom + 4, left: r.left, width: r.width }); setShowStbSug(true) } }}
+              onBlur={()=>setTimeout(()=>setShowStbSug(false), 150)}
+              placeholder="Line number (e.g. 41, 205)"
+              className="s-input"
+              style={SI}
+            />
+          </div>
+          <button onClick={handleAddRoute} disabled={!sIn.trim()} className="add-btn" style={!sIn.trim()?ABO:AB}>{I.plus()}</button>
         </div>
-        <button onClick={handleAddRoute} disabled={!sIn.trim()} className="add-btn" style={!sIn.trim()?ABO:AB}>{I.plus()}</button>
+        {showStbSug && stbSuggestions.length > 0 && (
+          <div style={{position:'fixed',top:stbSugPos.top,left:stbSugPos.left,width:stbSugPos.width,zIndex:99999,background:T.card,border:`1px solid ${T.glassBorder}`,borderRadius:8,overflow:'hidden',boxShadow:'0 8px 24px rgba(0,0,0,.5)'}}>
+            {stbSuggestions.map((s, i) => (
+              <button key={s.line} onMouseDown={e=>{ e.preventDefault(); handleAddFromSuggestion(s) }}
+                style={{display:'block',width:'100%',padding:'8px 12px',background:'none',border:'none',borderBottom:i < stbSuggestions.length - 1 ? `1px solid ${T.glassBorder}` : 'none',cursor:'pointer',textAlign:'left',color:T.fg,fontSize:12}}
+                className="sug-item"
+              >
+                <span style={{fontWeight:700,color:T.primary,marginRight:6}}>{s.line}</span>
+                <span style={{color:T.muted,fontSize:11}}>{s.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       <div style={{display:'flex',flexDirection:'column',gap:6}}>
         {stb.map(r=>(
