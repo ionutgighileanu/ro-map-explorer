@@ -20,7 +20,17 @@
       "Bash(npm list *)",
       "Bash(npx tsc *)",
       "Bash(dir *)",
-      "Bash(Remove-Item *)"
+      "Bash(Remove-Item *)",
+      "Bash(npm run *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000)",
+      "Bash(where chromium *)",
+      "Bash(where \"chromium-browser\")",
+      "Bash(where \"chrome\")",
+      "PowerShell(Get-ItemProperty *)",
+      "Bash(\"C:\\\\Program Files\\\\Google\\\\Chrome\\\\Application\\\\chrome.exe\" --headless=new --screenshot=/tmp/app-screenshot.png --window-size=1400,900 --no-sandbox --disable-gpu \"http://localhost:3000\")",
+      "PowerShell(Start-Sleep -Seconds 5; & \"C:\\\\Program Files\\\\Google\\\\Chrome\\\\Application\\\\chrome.exe\" --headless=new --screenshot=\"C:\\\\Users\\\\ionut\\\\AppData\\\\Local\\\\Temp\\\\app-screenshot2.png\" --window-size=1400,900 --no-sandbox --disable-gpu \"http://localhost:3000\"; Start-Sleep -Seconds 2)",
+      "Bash(pkill -f \"next dev\")",
+      "Bash(taskkill /F /IM node.exe /T)"
     ]
   }
 }

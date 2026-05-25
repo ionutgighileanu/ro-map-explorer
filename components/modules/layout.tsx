@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom'
 import { T } from '@/components/ui-constants'
 import { Section, SliderRow, Toggle } from '@/components/shared-controls'
 import ColorPicker from '@/components/color-picker'
+import { useMap } from '@/context/map-context'
 
 function LayoutIcon() {
   return (
@@ -91,39 +92,42 @@ function NumInput({ label, value, onChange, min, max }: {
   )
 }
 
-function CrosshairOverlay({ color, thickness, opacity }: { color: string; thickness: number; opacity: number }) {
+function CrosshairOverlay({ color, thickness, opacity, rect }: {
+  color: string; thickness: number; opacity: number; rect: DOMRect
+}) {
   const alpha = opacity / 100
+  const cx = rect.left + rect.width / 2
+  const cy = rect.top + rect.height / 2
   return (
     <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 15 }}>
       <div style={{
-        position: 'absolute', left: '50%', top: 0, bottom: 0,
-        width: thickness, transform: 'translateX(-50%)',
-        background: color, opacity: alpha,
+        position: 'absolute',
+        left: Math.round(cx - thickness / 2),
+        top: rect.top,
+        width: thickness,
+        height: rect.height,
+        background: color,
+        opacity: alpha,
       }} />
       <div style={{
-        position: 'absolute', top: '50%', left: 0, right: 0,
-        height: thickness, transform: 'translateY(-50%)',
-        background: color, opacity: alpha,
+        position: 'absolute',
+        left: rect.left,
+        top: Math.round(cy - thickness / 2),
+        width: rect.width,
+        height: thickness,
+        background: color,
+        opacity: alpha,
       }} />
     </div>
   )
 }
 
-function GridOverlay({ columns, rows, gutter, margin, color, opacity }: {
-  columns: number; rows: number; gutter: number; margin: number; color: string; opacity: number
+function GridOverlay({ columns, rows, gutter, margin, color, opacity, rect }: {
+  columns: number; rows: number; gutter: number; margin: number; color: string; opacity: number; rect: DOMRect
 }) {
-  const [w, setW] = useState(window.innerWidth)
-  const [h, setH] = useState(window.innerHeight)
-
-  useEffect(() => {
-    const update = () => { setW(window.innerWidth); setH(window.innerHeight) }
-    window.addEventListener('resize', update)
-    return () => window.removeEventListener('resize', update)
-  }, [])
-
   const alpha = opacity / 100
-  const availW = Math.max(0, w - 2 * margin)
-  const availH = Math.max(0, h - 2 * margin)
+  const availW = Math.max(0, rect.width - 2 * margin)
+  const availH = Math.max(0, rect.height - 2 * margin)
   const colW = Math.max(0, columns > 1 ? (availW - (columns - 1) * gutter) / columns : availW)
   const rowH = Math.max(0, rows > 1 ? (availH - (rows - 1) * gutter) / rows : availH)
 
@@ -132,8 +136,8 @@ function GridOverlay({ columns, rows, gutter, margin, color, opacity }: {
       {Array.from({ length: columns }, (_, i) => (
         <div key={`c${i}`} style={{
           position: 'absolute',
-          left: Math.round(margin + i * (colW + gutter)),
-          top: margin,
+          left: Math.round(rect.left + margin + i * (colW + gutter)),
+          top: rect.top + margin,
           width: Math.round(colW),
           height: availH,
           background: color,
@@ -143,8 +147,8 @@ function GridOverlay({ columns, rows, gutter, margin, color, opacity }: {
       {Array.from({ length: rows }, (_, i) => (
         <div key={`r${i}`} style={{
           position: 'absolute',
-          left: margin,
-          top: Math.round(margin + i * (rowH + gutter)),
+          left: rect.left + margin,
+          top: Math.round(rect.top + margin + i * (rowH + gutter)),
           width: availW,
           height: Math.round(rowH),
           background: color,
@@ -156,6 +160,8 @@ function GridOverlay({ columns, rows, gutter, margin, color, opacity }: {
 }
 
 export default function LayoutModule() {
+  const { map } = useMap()
+  const [mapRect, setMapRect] = useState<DOMRect | null>(null)
   const [mounted, setMounted] = useState(false)
 
   const [crosshairEnabled, setCrosshairEnabled] = useState(false)
@@ -171,19 +177,29 @@ export default function LayoutModule() {
   const [gridColor, setGridColor] = useState('#00d4e8')
   const [gridOpacity, setGridOpacity] = useState(10)
 
+  useEffect(() => {
+    const update = () => {
+      if (map) setMapRect(map.getContainer().getBoundingClientRect())
+    }
+    update()
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [map])
+
   useEffect(() => { setMounted(true) }, [])
 
   return (
     <>
-      {mounted && crosshairEnabled && createPortal(
-        <CrosshairOverlay color={crosshairColor} thickness={crosshairThickness} opacity={crosshairOpacity} />,
+      {mounted && crosshairEnabled && mapRect && createPortal(
+        <CrosshairOverlay color={crosshairColor} thickness={crosshairThickness} opacity={crosshairOpacity} rect={mapRect} />,
         document.body
       )}
-      {mounted && gridEnabled && createPortal(
+      {mounted && gridEnabled && mapRect && createPortal(
         <GridOverlay
           columns={gridColumns} rows={gridRows}
           gutter={gridGutter} margin={gridMargin}
           color={gridColor} opacity={gridOpacity}
+          rect={mapRect}
         />,
         document.body
       )}

@@ -40,25 +40,50 @@ interface MapViewProps {
   viewportMode: ViewportMode
 }
 
+const GUTTER = 24
+
 export default function MapView({ mapStyle, viewportMode }: MapViewProps) {
+  const wrapperRef = useRef<HTMLDivElement>(null)
   const mapContainer = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const { setMap, setReady } = useMap()
   const appliedStyleRef = useRef<MapStyleType>(mapStyle)
-  const [scale, setScale] = useState(1)
+  const [frameDims, setFrameDims] = useState({ w: 0, h: 0 })
 
-  // Recompute scale whenever viewportMode or window size changes
+  // Compute aspect-ratio-constrained frame from available space
   useEffect(() => {
-    const compute = () => {
-      const { w, h } = VIEWPORT_DIMS[viewportMode]
-      setScale(Math.min(window.innerWidth / w, window.innerHeight / h))
+    if (!wrapperRef.current) return
+    const { w: exportW, h: exportH } = VIEWPORT_DIMS[viewportMode]
+    const ratio = exportW / exportH
+
+    const compute = (availW: number, availH: number) => {
+      const usableW = availW - GUTTER * 2
+      const usableH = availH - GUTTER * 2
+      if (usableW <= 0 || usableH <= 0) return
+      let fw: number, fh: number
+      if (usableW / usableH > ratio) {
+        fh = usableH
+        fw = Math.round(usableH * ratio)
+      } else {
+        fw = usableW
+        fh = Math.round(usableW / ratio)
+      }
+      setFrameDims({ w: fw, h: fh })
     }
-    compute()
-    window.addEventListener("resize", compute)
-    return () => window.removeEventListener("resize", compute)
+
+    const observer = new ResizeObserver((entries) => {
+      const { width, height } = entries[0].contentRect
+      compute(width, height)
+    })
+    observer.observe(wrapperRef.current)
+
+    const rect = wrapperRef.current.getBoundingClientRect()
+    compute(rect.width, rect.height)
+
+    return () => observer.disconnect()
   }, [viewportMode])
 
-  // Initialize map once — cleanup only on unmount, never on style/viewport change
+  // Initialize map once — cleanup only on unmount
   useEffect(() => {
     if (!mapContainer.current) return
 
@@ -92,39 +117,37 @@ export default function MapView({ mapStyle, viewportMode }: MapViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Apply style without recreating the map — preserves viewport position
+  // Apply style without recreating the map
   useEffect(() => {
     if (!mapRef.current || appliedStyleRef.current === mapStyle) return
     appliedStyleRef.current = mapStyle
     mapRef.current.setStyle(STYLES[mapStyle])
   }, [mapStyle])
 
-  // Notify Mapbox of container resize after DOM updates
+  // Resize map when frame dimensions change
   useEffect(() => {
-    if (!mapRef.current) return
+    if (!mapRef.current || frameDims.w === 0) return
     requestAnimationFrame(() => {
       mapRef.current?.resize()
     })
-  }, [scale, viewportMode])
+  }, [frameDims])
 
-  const dims32 = VIEWPORT_DIMS["32p"]
+  const fw = frameDims.w > 0 ? frameDims.w : "100%"
+  const fh = frameDims.h > 0 ? frameDims.h : "100%"
 
   return (
     <div
-      ref={mapContainer}
-      style={
-        viewportMode === "16p"
-          ? { position: "absolute", inset: 0 }
-          : {
-              position: "absolute",
-              width: dims32.w,
-              height: dims32.h,
-              top: "50%",
-              left: "50%",
-              transform: `translate(-50%, -50%) scale(${scale})`,
-              transformOrigin: "center center",
-            }
-      }
-    />
+      ref={wrapperRef}
+      style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: GUTTER }}
+    >
+      <div
+        ref={mapContainer}
+        style={{
+          width: fw,
+          height: fh,
+          flexShrink: 0,
+        }}
+      />
+    </div>
   )
 }

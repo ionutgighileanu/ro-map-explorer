@@ -10,10 +10,10 @@ import { defaultSatelliteSettings, type SatelliteSettings } from "@/components/s
 const MapView = dynamic(() => import("@/components/map-view"), {
   ssr: false,
   loading: () => (
-    <div className="absolute inset-0 flex items-center justify-center bg-background">
-      <div className="flex flex-col items-center gap-3">
-        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-        <p className="text-xs text-muted-foreground">Loading map...</p>
+    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--background)' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+        <div style={{ width: 32, height: 32, border: '2px solid #00d4e8', borderTopColor: 'transparent', borderRadius: '50%' }} className="animate-spin" />
+        <p style={{ fontSize: 12, color: '#9a9cb8' }}>Loading map...</p>
       </div>
     </div>
   ),
@@ -24,7 +24,6 @@ export type ViewportMode = "16p" | "32p"
 
 function PageInner() {
   const [mapStyle, setMapStyle] = useState<MapStyleType>("dark")
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [viewportMode, setViewportMode] = useState<ViewportMode>("16p")
   const [satelliteSettings, setSatelliteSettings] = useState<SatelliteSettings>(defaultSatelliteSettings)
   const { map, ready } = useMap()
@@ -40,11 +39,8 @@ function PageInner() {
   }, [map])
 
   return (
-    <main className="relative w-screen h-screen overflow-hidden">
-      <MapView mapStyle={mapStyle} viewportMode={viewportMode} />
+    <main style={{ display: 'flex', width: '100vw', height: '100vh', overflow: 'hidden' }}>
       <AppSidebar
-        collapsed={sidebarCollapsed}
-        onCollapsedChange={setSidebarCollapsed}
         mapStyle={mapStyle}
         onSetMapStyle={setMapStyle}
         onZoomIn={handleZoomIn}
@@ -54,6 +50,18 @@ function PageInner() {
         satelliteSettings={satelliteSettings}
         onSatelliteSettingsChange={setSatelliteSettings}
       />
+      <div style={{
+        flex: 1,
+        minWidth: 0,
+        height: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'var(--background)',
+        overflow: 'hidden',
+      }}>
+        <MapView mapStyle={mapStyle} viewportMode={viewportMode} />
+      </div>
     </main>
   )
 }

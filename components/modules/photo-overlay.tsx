@@ -4,6 +4,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { T, I } from '@/components/ui-constants'
 import { Section, SliderRow, Toggle } from '@/components/shared-controls'
+import { useMap } from '@/context/map-context'
 
 const ACCEPTED = ['image/jpeg', 'image/png', 'image/tiff']
 
@@ -82,6 +83,8 @@ function TransformPanel({ opacity, onOpacity, transform, onTransform, isDefault,
 }
 
 export default function PhotoOverlayModule() {
+  const { map } = useMap()
+  const [mapRect, setMapRect] = useState<DOMRect | null>(null)
   const [enabled, setEnabled] = useState(false)
   const [imageSrc, setImageSrc] = useState<string | null>(null)
   const [opacity, setOpacity] = useState(0.5)
@@ -90,6 +93,15 @@ export default function PhotoOverlayModule() {
   const [mounted, setMounted] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const prevUrlRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    const update = () => {
+      if (map) setMapRect(map.getContainer().getBoundingClientRect())
+    }
+    update()
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [map])
 
   useEffect(() => { setMounted(true) }, [])
   useEffect(() => () => { if (prevUrlRef.current) URL.revokeObjectURL(prevUrlRef.current) }, [])
@@ -122,9 +134,19 @@ export default function PhotoOverlayModule() {
 
   return (
     <>
-      {/* Fullscreen overlay — portalled to document.body, z-5 (behind header menus), pointer-events:none */}
-      {mounted && enabled && imageSrc && createPortal(
-        <div style={{ position: 'fixed', inset: 0, zIndex: 5, pointerEvents: 'none', overflow: 'hidden', opacity }}>
+      {/* Overlay anchored to map canvas rect — portalled to document.body */}
+      {mounted && enabled && imageSrc && mapRect && createPortal(
+        <div style={{
+          position: 'fixed',
+          left: mapRect.left,
+          top: mapRect.top,
+          width: mapRect.width,
+          height: mapRect.height,
+          zIndex: 5,
+          pointerEvents: 'none',
+          overflow: 'hidden',
+          opacity,
+        }}>
           <div
             style={{
               position: 'absolute',
