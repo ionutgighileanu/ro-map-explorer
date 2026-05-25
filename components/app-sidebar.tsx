@@ -81,7 +81,8 @@ export default function AppSidebar({ mapStyle, onSetMapStyle, onZoomIn, onZoomOu
         preserveDrawingBuffer: true,
         interactive: false,
         attributionControl: false,
-      })
+        pixelRatio: 1,
+      } as unknown as mapboxgl.MapboxOptions)
 
       await new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => reject(new Error('Export timeout')), 20000)
