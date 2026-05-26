@@ -128,23 +128,17 @@ export default function AppSidebar({ mapStyle, onSetMapStyle, onZoomIn, onZoomOu
       hiddenMap.once('idle', () => { clearTimeout(t); resolve() })
     })
 
-    const canvas = hiddenMap.getCanvas()
-    if (canvas.width !== targetW || canvas.height !== targetH) {
-      canvas.width = targetW
-      canvas.height = targetH
-      canvas.style.width = targetW + 'px'
-      canvas.style.height = targetH + 'px'
-      hiddenMap.resize()
-      await new Promise<void>((resolve, reject) => {
-        const t = setTimeout(() => reject(new Error('Export resize timeout')), 10000)
-        hiddenMap.once('idle', () => { clearTimeout(t); resolve() })
-      })
-    }
+    const mapCanvas = hiddenMap.getCanvas()
+    console.log('[Export] mapCanvas:', mapCanvas.width, 'x', mapCanvas.height, '| dpr:', window.devicePixelRatio)
 
-    console.log('[Export] final canvas:', canvas.width, canvas.height, '| dpr:', window.devicePixelRatio)
+    const offscreen = document.createElement('canvas')
+    offscreen.width = targetW
+    offscreen.height = targetH
+    const ctx = offscreen.getContext('2d')!
+    ctx.drawImage(mapCanvas, 0, 0, targetW, targetH)
 
-    hiddenCanvasRef.current = canvas
-    return canvas
+    hiddenCanvasRef.current = offscreen
+    return offscreen
   }
 
   const downloadFromCanvas = (canvas: HTMLCanvasElement, format: 'png' | 'jpeg', quality?: number) => {
@@ -180,8 +174,9 @@ export default function AppSidebar({ mapStyle, onSetMapStyle, onZoomIn, onZoomOu
       const canvas = await prepareHiddenMap()
       downloadFromCanvas(canvas, 'png')
     } catch (err) {
-      console.error('Export failed:', err)
-      toast.error('Export failed')
+      const errMsg = err instanceof Error ? err.message : String(err)
+      console.error('[Export] FAILED:', errMsg, err)
+      toast.error('Export failed: ' + errMsg)
     } finally {
       cleanupHiddenMap()
       setExporting(false)
