@@ -35,70 +35,130 @@ export default function AppSidebar({ mapStyle, onSetMapStyle, onZoomIn, onZoomOu
   const { map } = useMap()
   const [exportOpen, setExportOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
+  const [exportQuality, setExportQuality] = useState(0.75)
+  const [jpegOpen, setJpegOpen] = useState(false)
+  const [jpegPreparing, setJpegPreparing] = useState(false)
+  const [jpegSize, setJpegSize] = useState<string | null>(null)
   const exportRef = useRef<HTMLDivElement>(null)
+  const hiddenMapRef = useRef<mapboxgl.Map | null>(null)
+  const hiddenDivRef = useRef<HTMLDivElement | null>(null)
+  const hiddenCanvasRef = useRef<HTMLCanvasElement | null>(null)
+
+  const cleanupHiddenMap = () => {
+    hiddenMapRef.current?.remove()
+    hiddenMapRef.current = null
+    if (hiddenDivRef.current && document.body.contains(hiddenDivRef.current)) {
+      document.body.removeChild(hiddenDivRef.current)
+    }
+    hiddenDivRef.current = null
+    hiddenCanvasRef.current = null
+  }
+
+  const closeJpegPanel = () => {
+    cleanupHiddenMap()
+    setJpegOpen(false)
+    setJpegPreparing(false)
+    setJpegSize(null)
+  }
 
   useEffect(() => {
-    if (!exportOpen) return
+    if (!exportOpen && !jpegOpen) return
     const handler = (e: MouseEvent) => {
       if (exportRef.current && !exportRef.current.contains(e.target as Node)) {
+        if (jpegOpen) closeJpegPanel()
         setExportOpen(false)
       }
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
-  }, [exportOpen])
+  }, [exportOpen, jpegOpen])
 
-  const handleExport = async (format: 'png' | 'jpeg') => {
-    if (!map || exporting) return
-    setExporting(true)
-    setExportOpen(false)
+  useEffect(() => {
+    return () => { cleanupHiddenMap() }
+  }, [])
+
+  const formatBytes = (bytes: number) => bytes >= 1048576
+    ? (bytes / 1048576).toFixed(2) + ' MB'
+    : Math.round(bytes / 1024) + ' KB'
+
+  useEffect(() => {
+    if (!jpegOpen || jpegPreparing || !hiddenCanvasRef.current) return
+    const timer = setTimeout(() => {
+      const c = hiddenCanvasRef.current
+      if (!c) return
+      const dataURL = c.toDataURL('image/jpeg', exportQuality)
+      const bytes = Math.round(dataURL.length * 0.75)
+      setJpegSize(formatBytes(bytes))
+    }, 200)
+    return () => clearTimeout(timer)
+  }, [exportQuality, jpegOpen, jpegPreparing])
+
+  const prepareHiddenMap = async () => {
+    if (!map) throw new Error('Map not ready')
 
     const targetW = viewportMode === '16p' ? 1920 : 3840
     const targetH = 1080
-    const mimeType = format === 'png' ? 'image/png' : 'image/jpeg'
 
-    let hiddenMap: mapboxgl.Map | null = null
-    let hiddenDiv: HTMLDivElement | null = null
+    const hiddenDiv = document.createElement('div')
+    hiddenDiv.style.cssText = `position:absolute;left:${-(targetW + 200)}px;top:0;width:${targetW}px;height:${targetH}px;visibility:hidden;`
+    document.body.appendChild(hiddenDiv)
+    hiddenDivRef.current = hiddenDiv
 
-    try {
-      hiddenDiv = document.createElement('div')
-      hiddenDiv.style.cssText = `position:absolute;left:${-(targetW + 200)}px;top:0;width:${targetW}px;height:${targetH}px;visibility:hidden;`
-      document.body.appendChild(hiddenDiv)
+    const currentStyle = map.getStyle()
+    const visibleWidth = map.getContainer().getBoundingClientRect().width
+    const zoomDelta = Math.log2(targetW / visibleWidth)
+    const exportZoom = map.getZoom() + zoomDelta
 
-      const currentStyle = map.getStyle()
+    const hiddenMap = new mapboxgl.Map({
+      container: hiddenDiv,
+      style: currentStyle as mapboxgl.StyleSpecification,
+      center: map.getCenter(),
+      zoom: exportZoom,
+      bearing: map.getBearing(),
+      pitch: map.getPitch(),
+      preserveDrawingBuffer: true,
+      interactive: false,
+      attributionControl: false,
+      pixelRatio: 1,
+    } as unknown as mapboxgl.MapboxOptions)
+    hiddenMapRef.current = hiddenMap
 
-      const visibleWidth = map.getContainer().getBoundingClientRect().width
-      const zoomDelta = Math.log2(targetW / visibleWidth)
-      const exportZoom = map.getZoom() + zoomDelta
+    await new Promise<void>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('Export timeout')), 20000)
+      hiddenMap.once('idle', () => { clearTimeout(t); resolve() })
+    })
 
-      hiddenMap = new mapboxgl.Map({
-        container: hiddenDiv,
-        style: currentStyle as mapboxgl.StyleSpecification,
-        center: map.getCenter(),
-        zoom: exportZoom,
-        bearing: map.getBearing(),
-        pitch: map.getPitch(),
-        preserveDrawingBuffer: true,
-        interactive: false,
-        attributionControl: false,
-        pixelRatio: 1,
-      } as unknown as mapboxgl.MapboxOptions)
-
+    const canvas = hiddenMap.getCanvas()
+    if (canvas.width !== targetW || canvas.height !== targetH) {
+      canvas.width = targetW
+      canvas.height = targetH
+      canvas.style.width = targetW + 'px'
+      canvas.style.height = targetH + 'px'
+      hiddenMap.resize()
       await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('Export timeout')), 20000)
-        hiddenMap!.once('idle', () => {
-          clearTimeout(timeout)
-          resolve()
-        })
+        const t = setTimeout(() => reject(new Error('Export resize timeout')), 10000)
+        hiddenMap.once('idle', () => { clearTimeout(t); resolve() })
       })
+    }
 
-      const dataURL = hiddenMap.getCanvas().toDataURL(mimeType, 0.95)
+    console.log('[Export] final canvas:', canvas.width, canvas.height, '| dpr:', window.devicePixelRatio)
 
-      const link = document.createElement('a')
-      link.download = `ro-map-${Date.now()}.${format}`
-      link.href = dataURL
-      link.click()
+    hiddenCanvasRef.current = canvas
+    return canvas
+  }
 
+  const downloadFromCanvas = (canvas: HTMLCanvasElement, format: 'png' | 'jpeg', quality?: number) => {
+    const mimeType = format === 'png' ? 'image/png' : 'image/jpeg'
+    const dataURL = canvas.toDataURL(mimeType, format === 'jpeg' ? quality : undefined)
+    const bytes = Math.round(dataURL.length * 0.75)
+    const sizeStr = formatBytes(bytes)
+
+    const link = document.createElement('a')
+    link.download = `ro-map-${Date.now()}.${format}`
+    link.href = dataURL
+    link.click()
+
+    if (map) {
       const container = map.getContainer()
       const flash = document.createElement('div')
       flash.style.cssText = 'position:absolute;inset:0;background:white;opacity:0.55;pointer-events:none;transition:opacity 0.4s ease;z-index:10'
@@ -107,14 +167,57 @@ export default function AppSidebar({ mapStyle, onSetMapStyle, onZoomIn, onZoomOu
         flash.style.opacity = '0'
         setTimeout(() => flash.remove(), 450)
       })
+    }
 
-      toast.success('Map exported successfully')
+    toast.success(`Map exported (${sizeStr})`)
+  }
+
+  const handleExportPng = async () => {
+    if (!map || exporting) return
+    setExporting(true)
+    setExportOpen(false)
+    try {
+      const canvas = await prepareHiddenMap()
+      downloadFromCanvas(canvas, 'png')
     } catch (err) {
       console.error('Export failed:', err)
       toast.error('Export failed')
     } finally {
-      hiddenMap?.remove()
-      if (hiddenDiv && document.body.contains(hiddenDiv)) document.body.removeChild(hiddenDiv)
+      cleanupHiddenMap()
+      setExporting(false)
+    }
+  }
+
+  const handleStartJpegExport = async () => {
+    if (!map || exporting || jpegOpen) return
+    setExportOpen(false)
+    setJpegOpen(true)
+    setJpegPreparing(true)
+    setJpegSize(null)
+    try {
+      const canvas = await prepareHiddenMap()
+      const dataURL = canvas.toDataURL('image/jpeg', exportQuality)
+      const bytes = Math.round(dataURL.length * 0.75)
+      setJpegSize(formatBytes(bytes))
+      setJpegPreparing(false)
+    } catch (err) {
+      console.error('JPEG prep failed:', err)
+      toast.error('Export failed')
+      closeJpegPanel()
+    }
+  }
+
+  const handleConfirmJpegExport = () => {
+    const canvas = hiddenCanvasRef.current
+    if (!canvas || exporting) return
+    setExporting(true)
+    try {
+      downloadFromCanvas(canvas, 'jpeg', exportQuality)
+    } catch (err) {
+      console.error('JPEG export failed:', err)
+      toast.error('Export failed')
+    } finally {
+      closeJpegPanel()
       setExporting(false)
     }
   }
@@ -172,8 +275,12 @@ export default function AppSidebar({ mapStyle, onSetMapStyle, onZoomIn, onZoomOu
         <div ref={exportRef} style={{position:'relative'}}>
           <button
             className="exp-btn"
-            style={FB(exportOpen)}
-            onClick={() => !exporting && setExportOpen(o => !o)}
+            style={FB(exportOpen || jpegOpen)}
+            onClick={() => {
+              if (exporting) return
+              if (jpegOpen) { closeJpegPanel(); return }
+              setExportOpen(o => !o)
+            }}
           >
             {exporting
               ? <span className="animate-spin" style={{width:16,height:16,border:`2px solid ${T.primary}`,borderTopColor:'transparent',borderRadius:'50%',display:'inline-block',flexShrink:0}}/>
@@ -181,19 +288,57 @@ export default function AppSidebar({ mapStyle, onSetMapStyle, onZoomIn, onZoomOu
             }
             <span style={{flex:1}}>{exporting ? 'Exporting...' : 'Export'}</span>
             {!exporting && (
-              <span style={{display:'flex',transform:exportOpen?'rotate(180deg)':'none',transition:'transform .2s'}}>
+              <span style={{display:'flex',transform:(exportOpen||jpegOpen)?'rotate(180deg)':'none',transition:'transform .2s'}}>
                 {I.chevron(12)}
               </span>
             )}
           </button>
-          {exportOpen && (
+          {exportOpen && !jpegOpen && (
             <div style={{position:'absolute',bottom:'calc(100% + 4px)',left:0,right:0,...GP,borderRadius:8,overflow:'hidden',zIndex:100}}>
-              <button className="exp-opt" onClick={() => handleExport('png')} style={{display:'flex',alignItems:'center',gap:8,width:'100%',padding:'9px 12px',background:'none',border:'none',borderBottom:`1px solid ${T.glassBorder}`,color:T.fg,fontSize:12,cursor:'pointer'}}>
+              <button className="exp-opt" onClick={() => handleExportPng()} style={{display:'flex',alignItems:'center',gap:8,width:'100%',padding:'9px 12px',background:'none',border:'none',borderBottom:`1px solid ${T.glassBorder}`,color:T.fg,fontSize:12,cursor:'pointer'}}>
                 {I.download(14)}<span>Export as PNG</span>
               </button>
-              <button className="exp-opt" onClick={() => handleExport('jpeg')} style={{display:'flex',alignItems:'center',gap:8,width:'100%',padding:'9px 12px',background:'none',border:'none',color:T.fg,fontSize:12,cursor:'pointer'}}>
+              <button className="exp-opt" onClick={() => handleStartJpegExport()} style={{display:'flex',alignItems:'center',gap:8,width:'100%',padding:'9px 12px',background:'none',border:'none',color:T.fg,fontSize:12,cursor:'pointer'}}>
                 {I.download(14)}<span>Export as JPEG</span>
               </button>
+            </div>
+          )}
+          {jpegOpen && (
+            <div style={{position:'absolute',bottom:'calc(100% + 4px)',left:0,right:0,...GP,borderRadius:8,overflow:'hidden',zIndex:100,padding:12}}>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+                <div style={{fontSize:11,color:T.fg,fontWeight:600,textTransform:'uppercase',letterSpacing:'.06em'}}>JPEG Quality</div>
+                <button onClick={closeJpegPanel} style={{background:'none',border:'none',color:T.muted,cursor:'pointer',padding:0,display:'flex',alignItems:'center'}} aria-label="Close">{I.x()}</button>
+              </div>
+              {jpegPreparing ? (
+                <div style={{display:'flex',alignItems:'center',gap:8,padding:'10px 0',color:T.muted,fontSize:11}}>
+                  <span className="animate-spin" style={{width:14,height:14,border:`2px solid ${T.primary}`,borderTopColor:'transparent',borderRadius:'50%',display:'inline-block'}}/>
+                  <span>Pregătire preview…</span>
+                </div>
+              ) : (
+                <>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6}}>
+                    <span style={{fontSize:11,color:T.muted}}>Calitate</span>
+                    <span style={{fontSize:11,color:T.fg,fontWeight:600,fontVariantNumeric:'tabular-nums'}}>{Math.round(exportQuality * 100)}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={1}
+                    max={100}
+                    step={1}
+                    value={Math.round(exportQuality * 100)}
+                    onChange={(e) => setExportQuality(Number(e.target.value) / 100)}
+                    style={{width:'100%',background:'rgba(255,255,255,0.12)',height:4,borderRadius:2,outline:'none',appearance:'none',WebkitAppearance:'none',marginBottom:10,cursor:'pointer'}}
+                  />
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12,padding:'6px 8px',background:T.secondary,border:`1px solid ${T.glassBorder}`,borderRadius:6}}>
+                    <span style={{fontSize:10,color:T.muted,textTransform:'uppercase',letterSpacing:'.06em'}}>Mărime estimată</span>
+                    <span style={{fontSize:12,color:T.primary,fontWeight:600,fontVariantNumeric:'tabular-nums'}}>{jpegSize ?? '—'}</span>
+                  </div>
+                  <div style={{display:'flex',gap:6}}>
+                    <button onClick={closeJpegPanel} style={{flex:1,padding:'7px 0',fontSize:11,fontWeight:500,borderRadius:6,cursor:'pointer',border:`1px solid ${T.glassBorder}`,background:T.secondary,color:T.muted}}>Anulează</button>
+                    <button onClick={handleConfirmJpegExport} disabled={exporting} style={{flex:1,padding:'7px 0',fontSize:11,fontWeight:600,borderRadius:6,cursor:exporting?'not-allowed':'pointer',border:`1px solid ${T.primary}`,background:'rgba(0,212,232,0.18)',color:T.primary,opacity:exporting?0.6:1}}>{exporting ? 'Se salvează…' : 'Salvează'}</button>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>
