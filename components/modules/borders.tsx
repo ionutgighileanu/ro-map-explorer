@@ -45,6 +45,14 @@ interface CountrySuggestion {
 
 const SECTORS = ['Sector 1','Sector 2','Sector 3','Sector 4','Sector 5','Sector 6']
 
+interface RegionDef { key: string; label: string; file: string; fill: string; line: string; nameProp: string }
+const REGION_DEFS: RegionDef[] = [
+  { key: 'regiuni_istorice',        label: 'Regiuni istorice',          file: '/data/regiuni_istorice.geojson',        fill: '#4e9af1', line: '#1f5fa8', nameProp: 'nume' },
+  { key: 'regiuni_istorice_extins', label: 'Regiuni istorice (extins)', file: '/data/regiuni_istorice_extins.geojson', fill: '#f1a84e', line: '#a86a1f', nameProp: 'nume' },
+  { key: 'macro_regiuni',           label: 'Macro regiuni',             file: '/data/macro%20regiuni.geojson',         fill: '#4ef1a0', line: '#1fa868', nameProp: 'name' },
+  { key: 'regiuni_de_dezvoltare',   label: 'Regiuni de dezvoltare',     file: '/data/regiuni%20de%20dezvoltare.geojson', fill: '#f14e6e', line: '#a81f3e', nameProp: 'name' },
+]
+
 // eslint-disable-next-line no-misleading-character-class
 const normalize = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
@@ -55,6 +63,23 @@ function setPaintAndSync(map: mapboxgl.Map, mutate: (id: string, upd: (l: mapbox
   map.setPaintProperty(id, prop as any, value)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   mutate(id, l => ({ ...l, paint: { ...((l as any).paint ?? {}), [prop]: value } } as mapboxgl.AnyLayer))
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function setLayoutAndSync(map: mapboxgl.Map, mutate: (id: string, upd: (l: mapboxgl.AnyLayer) => mapboxgl.AnyLayer) => void, id: string, prop: string, value: string | number) {
+  if (!map.getLayer(id)) return
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  map.setLayoutProperty(id, prop as any, value)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  mutate(id, l => ({ ...l, layout: { ...((l as any).layout ?? {}), [prop]: value } } as mapboxgl.AnyLayer))
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function setFilterAndSync(map: mapboxgl.Map, mutate: (id: string, upd: (l: mapboxgl.AnyLayer) => mapboxgl.AnyLayer) => void, id: string, filter: any) {
+  if (!map.getLayer(id)) return
+  map.setFilter(id, filter)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  mutate(id, l => { const n = { ...l } as any; if (filter) n.filter = filter; else delete n.filter; return n as mapboxgl.AnyLayer })
 }
 
 export default function BordersModule() {
@@ -109,6 +134,32 @@ export default function BordersModule() {
   const [secCol, setSecCol] = useState('#76ff03')
   const prevBucFullRef = useRef<BucFull | null>(null)
   const prevSectorsRef = useRef<Sector[]>([])
+
+  // Regions
+  const [regions, setRegions] = useState<Record<string, boolean>>(
+    Object.fromEntries(REGION_DEFS.map(d => [d.key, false]))
+  )
+  const [regionFeatures, setRegionFeatures] = useState<Record<string, string[]>>({})
+  const [regionSelected, setRegionSelected] = useState<Record<string, string[]>>({})
+  const [openRegions, setOpenRegions] = useState(false)
+  const [openRegionDrop, setOpenRegionDrop] = useState<Set<string>>(new Set())
+  const regSourcesAdded = useRef<Set<string>>(new Set())
+
+  // Load region feature names (for per-region filter dropdown)
+  useEffect(() => {
+    REGION_DEFS.forEach(def => {
+      fetch(def.file)
+        .then(r => r.json())
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .then((j: any) => {
+          const names: string[] = (j.features ?? []).map((f: any) => f.properties?.[def.nameProp]).filter(Boolean)
+          const uniq = Array.from(new Set(names))
+          setRegionFeatures(p => ({ ...p, [def.key]: uniq }))
+          setRegionSelected(p => (p[def.key] ? p : { ...p, [def.key]: uniq }))
+        })
+        .catch(console.error)
+    })
+  }, [])
 
   // Fetch all-countries.geojson once
   useEffect(() => {
@@ -358,6 +409,54 @@ export default function BordersModule() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(sectors), map, ready])
 
+  // Sync regions → map (lazy source/layer registration + visibility toggle + per-feature filter)
+  useEffect(() => {
+    if (!map || !ready) return
+    REGION_DEFS.forEach(def => {
+      const on = regions[def.key]
+      const srcId = `region-${def.key}`
+      const fillId = `${srcId}-fill`
+      const lineId = `${srcId}-line`
+      const sel = regionSelected[def.key]
+      const all = regionFeatures[def.key] ?? []
+      // null filter = show all features; restrictive filter only when a subset is selected
+      const filter = (sel && all.length && sel.length < all.length)
+        ? ['in', ['get', def.nameProp], ['literal', sel]]
+        : null
+
+      if (on) {
+        if (!regSourcesAdded.current.has(srcId)) {
+          registerSource(srcId, { type: 'geojson', data: def.file })
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const fillLayer: any = { id: fillId, type: 'fill', source: srcId, layout: { visibility: 'visible' }, paint: { 'fill-color': def.fill, 'fill-opacity': 0.3 } }
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const lineLayer: any = { id: lineId, type: 'line', source: srcId, layout: { visibility: 'visible' }, paint: { 'line-color': def.line, 'line-width': 1.5 } }
+          if (filter) { fillLayer.filter = filter; lineLayer.filter = filter }
+          registerLayer(fillLayer as mapboxgl.AnyLayer, srcId)
+          registerLayer(lineLayer as mapboxgl.AnyLayer, srcId)
+          regSourcesAdded.current.add(srcId)
+        } else {
+          setLayoutAndSync(map, mutateRegisteredLayer, fillId, 'visibility', 'visible')
+          setLayoutAndSync(map, mutateRegisteredLayer, lineId, 'visibility', 'visible')
+          setFilterAndSync(map, mutateRegisteredLayer, fillId, filter)
+          setFilterAndSync(map, mutateRegisteredLayer, lineId, filter)
+        }
+      } else if (regSourcesAdded.current.has(srcId)) {
+        setLayoutAndSync(map, mutateRegisteredLayer, fillId, 'visibility', 'none')
+        setLayoutAndSync(map, mutateRegisteredLayer, lineId, 'visibility', 'none')
+      }
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(regions), JSON.stringify(regionSelected), JSON.stringify(regionFeatures), map, ready])
+
+  const toggleRegionFeature = (key: string, name: string) => setRegionSelected(p => {
+    const cur = p[key] ?? []
+    return { ...p, [key]: cur.includes(name) ? cur.filter(n => n !== name) : [...cur, name] }
+  })
+  const selectAllRegionFeatures = (key: string) => setRegionSelected(p => ({ ...p, [key]: regionFeatures[key] ?? [] }))
+  const deselectAllRegionFeatures = (key: string) => setRegionSelected(p => ({ ...p, [key]: [] }))
+  const toggleRegionDrop = (key: string) => setOpenRegionDrop(p => { const n = new Set(p); n.has(key) ? n.delete(key) : n.add(key); return n })
+
   const addFromSuggestion = (s: CountrySuggestion) => {
     if (countries.some(c => c.iso3 === s.iso3)) return
     const c: Country = { id: Date.now().toString(), name: s.name, iso3: s.iso3, filled: mkFill('#00e5ff'), shape: mkShape('#00e5ff') }
@@ -565,6 +664,57 @@ export default function BordersModule() {
                 ))}
               </div>
             </Accordion>
+          </div>
+        </Accordion>
+
+        {/* Regions */}
+        <Accordion
+          name={`Regions${Object.values(regions).filter(Boolean).length ? ` (${Object.values(regions).filter(Boolean).length})` : ''}`}
+          isOpen={openRegions}
+          onToggle={() => setOpenRegions(!openRegions)}
+        >
+          <div style={{display:'flex',flexDirection:'column',gap:6}}>
+            {REGION_DEFS.map(def => {
+              const feats = regionFeatures[def.key] ?? []
+              const sel = regionSelected[def.key] ?? feats
+              const dropOpen = openRegionDrop.has(def.key)
+              return (
+                <div key={def.key} className="item-group" style={{background:regions[def.key]?'rgba(0,212,232,0.08)':T.secondary,borderRadius:8,padding:'8px 10px',border:regions[def.key]?'1px solid rgba(0,212,232,0.2)':'1px solid transparent',transition:'all .2s',display:'flex',flexDirection:'column',gap:6}}>
+                  <div style={{display:'flex',alignItems:'center',gap:6}}>
+                    <Toggle label="" value={regions[def.key]} onChange={v => setRegions(p => ({ ...p, [def.key]: v }))}/>
+                    <span style={{width:12,height:12,borderRadius:3,background:def.fill,border:`1.5px solid ${def.line}`,flexShrink:0}}/>
+                    <span style={{fontSize:12,flex:1,fontWeight:regions[def.key]?500:400,color:regions[def.key]?T.fg:T.muted,transition:'all .2s'}}>{def.label}</span>
+                    {feats.length > 0 && (
+                      <button
+                        onClick={() => toggleRegionDrop(def.key)}
+                        title="Filtrează"
+                        style={{display:'flex',alignItems:'center',gap:3,background:'none',border:'none',cursor:'pointer',color:T.muted,fontSize:10,padding:'2px 4px'}}
+                        className="rm-btn"
+                      >
+                        <span>{sel.length}/{feats.length}</span>
+                        <span style={{transform:dropOpen?'rotate(180deg)':'none',transition:'transform .2s',display:'inline-flex'}}>{I.chevron(12)}</span>
+                      </button>
+                    )}
+                  </div>
+                  {dropOpen && feats.length > 0 && (
+                    <div style={{display:'flex',flexDirection:'column',gap:4,paddingLeft:4,borderTop:`1px solid ${T.glassBorder}`,paddingTop:6}}>
+                      <div style={{display:'flex',gap:6,marginBottom:2}}>
+                        <button onClick={() => selectAllRegionFeatures(def.key)} style={{fontSize:10,background:'rgba(0,212,232,0.12)',color:T.primary,border:'none',padding:'3px 8px',borderRadius:6,cursor:'pointer'}} className="sel-all">Select All</button>
+                        <button onClick={() => deselectAllRegionFeatures(def.key)} style={{fontSize:10,background:'rgba(255,75,75,0.12)',color:'#ff4b4b',border:'none',padding:'3px 8px',borderRadius:6,cursor:'pointer'}} className="sel-all">Deselect All</button>
+                      </div>
+                      <div style={{display:'flex',flexDirection:'column',gap:4,maxHeight:180,overflowY:'auto'}}>
+                        {feats.map(name => (
+                          <label key={name} style={{display:'flex',alignItems:'center',gap:8,fontSize:12,cursor:'pointer',color:sel.includes(name)?T.fg:T.muted}}>
+                            <input type="checkbox" checked={sel.includes(name)} onChange={() => toggleRegionFeature(def.key, name)} style={{accentColor:T.primary,cursor:'pointer'}}/>
+                            <span>{name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </Accordion>
 
