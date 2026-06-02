@@ -53,6 +53,13 @@ const REGION_DEFS: RegionDef[] = [
   { key: 'regiuni_de_dezvoltare',   label: 'Regiuni de dezvoltare',     file: '/data/regiuni%20de%20dezvoltare.geojson', fill: '#f14e6e', line: '#a81f3e', nameProp: 'name' },
 ]
 
+interface RegionFeature { name: string; enabled: boolean; filled: FillConfig; shape: ShapeConfig }
+interface RegionGroupStyle { fillCol: string; shapeEnabled: boolean; shapeCol: string; shapeWidth: number }
+// Transparency is carried by the color's alpha (like Countries/Jud.RO); fill-opacity stays 1.
+const hexToRgba = (hex: string, a: number): string => { const n = parseInt(hex.slice(1), 16); return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})` }
+const mkRegionFill = (hex: string): FillConfig => ({ enabled: true, color: hexToRgba(hex, 0.3), opacity: 1 })
+const mkRegionShape = (color: string): ShapeConfig => ({ enabled: true, color, width: 1.5 })
+
 // eslint-disable-next-line no-misleading-character-class
 const normalize = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
@@ -63,23 +70,6 @@ function setPaintAndSync(map: mapboxgl.Map, mutate: (id: string, upd: (l: mapbox
   map.setPaintProperty(id, prop as any, value)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   mutate(id, l => ({ ...l, paint: { ...((l as any).paint ?? {}), [prop]: value } } as mapboxgl.AnyLayer))
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function setLayoutAndSync(map: mapboxgl.Map, mutate: (id: string, upd: (l: mapboxgl.AnyLayer) => mapboxgl.AnyLayer) => void, id: string, prop: string, value: string | number) {
-  if (!map.getLayer(id)) return
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  map.setLayoutProperty(id, prop as any, value)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  mutate(id, l => ({ ...l, layout: { ...((l as any).layout ?? {}), [prop]: value } } as mapboxgl.AnyLayer))
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function setFilterAndSync(map: mapboxgl.Map, mutate: (id: string, upd: (l: mapboxgl.AnyLayer) => mapboxgl.AnyLayer) => void, id: string, filter: any) {
-  if (!map.getLayer(id)) return
-  map.setFilter(id, filter)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  mutate(id, l => { const n = { ...l } as any; if (filter) n.filter = filter; else delete n.filter; return n as mapboxgl.AnyLayer })
 }
 
 export default function BordersModule() {
@@ -139,23 +129,29 @@ export default function BordersModule() {
   const [regions, setRegions] = useState<Record<string, boolean>>(
     Object.fromEntries(REGION_DEFS.map(d => [d.key, false]))
   )
-  const [regionFeatures, setRegionFeatures] = useState<Record<string, string[]>>({})
-  const [regionSelected, setRegionSelected] = useState<Record<string, string[]>>({})
+  const [regionFeats, setRegionFeats] = useState<Record<string, RegionFeature[]>>({})
+  const [regionGroup, setRegionGroup] = useState<Record<string, RegionGroupStyle>>(
+    Object.fromEntries(REGION_DEFS.map(d => [d.key, { fillCol: hexToRgba(d.fill, 0.3), shapeEnabled: true, shapeCol: d.line, shapeWidth: 1.5 }]))
+  )
   const [openRegions, setOpenRegions] = useState(false)
-  const [openRegionDrop, setOpenRegionDrop] = useState<Set<string>>(new Set())
-  const regSourcesAdded = useRef<Set<string>>(new Set())
+  const [openReg, togReg] = useToggleSet()
+  const prevRegionsRef = useRef<Record<string, boolean>>({})
+  const prevFeatsRef = useRef<Record<string, RegionFeature[]>>({})
 
-  // Load region feature names (for per-region filter dropdown)
+  // Load region features (name + per-feature editable style)
   useEffect(() => {
     REGION_DEFS.forEach(def => {
       fetch(def.file)
         .then(r => r.json())
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         .then((j: any) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const names: string[] = (j.features ?? []).map((f: any) => f.properties?.[def.nameProp]).filter(Boolean)
           const uniq = Array.from(new Set(names))
-          setRegionFeatures(p => ({ ...p, [def.key]: uniq }))
-          setRegionSelected(p => (p[def.key] ? p : { ...p, [def.key]: uniq }))
+          setRegionFeats(p => p[def.key] ? p : {
+            ...p,
+            [def.key]: uniq.map(n => ({ name: n, enabled: true, filled: mkRegionFill(def.fill), shape: mkRegionShape(def.line) })),
+          })
         })
         .catch(console.error)
     })
@@ -409,53 +405,84 @@ export default function BordersModule() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(sectors), map, ready])
 
-  // Sync regions → map (lazy source/layer registration + visibility toggle + per-feature filter)
+  // Sync regions → map (one fill + one line layer per feature, filtered by name — like Jud.RO)
   useEffect(() => {
     if (!map || !ready) return
+    const prevRegions = prevRegionsRef.current
+    const prevFeats = prevFeatsRef.current
+
     REGION_DEFS.forEach(def => {
-      const on = regions[def.key]
-      const srcId = `region-${def.key}`
-      const fillId = `${srcId}-fill`
-      const lineId = `${srcId}-line`
-      const sel = regionSelected[def.key]
-      const all = regionFeatures[def.key] ?? []
-      // null filter = show all features; restrictive filter only when a subset is selected
-      const filter = (sel && all.length && sel.length < all.length)
-        ? ['in', ['get', def.nameProp], ['literal', sel]]
-        : null
+      const key = def.key
+      const srcId = `region-${key}`
+      const masterIs = !!regions[key]
+      const masterWas = !!prevRegions[key]
+      const feats = regionFeats[key] ?? []
+      const pFeats = prevFeats[key] ?? []
 
-      if (on) {
-        if (!regSourcesAdded.current.has(srcId)) {
-          registerSource(srcId, { type: 'geojson', data: def.file })
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const fillLayer: any = { id: fillId, type: 'fill', source: srcId, layout: { visibility: 'visible' }, paint: { 'fill-color': def.fill, 'fill-opacity': 0.3 } }
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const lineLayer: any = { id: lineId, type: 'line', source: srcId, layout: { visibility: 'visible' }, paint: { 'line-color': def.line, 'line-width': 1.5 } }
-          if (filter) { fillLayer.filter = filter; lineLayer.filter = filter }
-          registerLayer(fillLayer as mapboxgl.AnyLayer, srcId)
-          registerLayer(lineLayer as mapboxgl.AnyLayer, srcId)
-          regSourcesAdded.current.add(srcId)
-        } else {
-          setLayoutAndSync(map, mutateRegisteredLayer, fillId, 'visibility', 'visible')
-          setLayoutAndSync(map, mutateRegisteredLayer, lineId, 'visibility', 'visible')
-          setFilterAndSync(map, mutateRegisteredLayer, fillId, filter)
-          setFilterAndSync(map, mutateRegisteredLayer, lineId, filter)
+      if (masterIs && feats.length) registerSource(srcId, { type: 'geojson', data: def.file })
+
+      feats.forEach((f, i) => {
+        const pf = pFeats[i]
+        const fillId = `${srcId}-${i}-fill`
+        const lineId = `${srcId}-${i}-line`
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const filter: any = ['==', ['get', def.nameProp], f.name]
+
+        const fillIs = masterIs && f.enabled && f.filled.enabled
+        const fillWas = masterWas && (pf?.enabled ?? false) && (pf?.filled.enabled ?? false)
+        const lineIs = masterIs && f.enabled && f.shape.enabled
+        const lineWas = masterWas && (pf?.enabled ?? false) && (pf?.shape.enabled ?? false)
+
+        if (fillIs && !fillWas) {
+          registerLayer({ id: fillId, type: 'fill', source: srcId, filter, paint: { 'fill-color': f.filled.color, 'fill-opacity': f.filled.opacity } } as unknown as mapboxgl.AnyLayer, srcId)
+        } else if (!fillIs && fillWas) {
+          removeRegisteredLayer(fillId)
+        } else if (fillIs && pf) {
+          if (pf.filled.color !== f.filled.color) setPaintAndSync(map, mutateRegisteredLayer, fillId, 'fill-color', f.filled.color)
+          if (pf.filled.opacity !== f.filled.opacity) setPaintAndSync(map, mutateRegisteredLayer, fillId, 'fill-opacity', f.filled.opacity)
         }
-      } else if (regSourcesAdded.current.has(srcId)) {
-        setLayoutAndSync(map, mutateRegisteredLayer, fillId, 'visibility', 'none')
-        setLayoutAndSync(map, mutateRegisteredLayer, lineId, 'visibility', 'none')
-      }
-    })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(regions), JSON.stringify(regionSelected), JSON.stringify(regionFeatures), map, ready])
 
-  const toggleRegionFeature = (key: string, name: string) => setRegionSelected(p => {
-    const cur = p[key] ?? []
-    return { ...p, [key]: cur.includes(name) ? cur.filter(n => n !== name) : [...cur, name] }
-  })
-  const selectAllRegionFeatures = (key: string) => setRegionSelected(p => ({ ...p, [key]: regionFeatures[key] ?? [] }))
-  const deselectAllRegionFeatures = (key: string) => setRegionSelected(p => ({ ...p, [key]: [] }))
-  const toggleRegionDrop = (key: string) => setOpenRegionDrop(p => { const n = new Set(p); n.has(key) ? n.delete(key) : n.add(key); return n })
+        if (lineIs && !lineWas) {
+          registerLayer({ id: lineId, type: 'line', source: srcId, filter, paint: { 'line-color': f.shape.color, 'line-width': f.shape.width } } as unknown as mapboxgl.AnyLayer, srcId)
+        } else if (!lineIs && lineWas) {
+          removeRegisteredLayer(lineId)
+        } else if (lineIs && pf) {
+          if (pf.shape.color !== f.shape.color) setPaintAndSync(map, mutateRegisteredLayer, lineId, 'line-color', f.shape.color)
+          if (pf.shape.width !== f.shape.width) setPaintAndSync(map, mutateRegisteredLayer, lineId, 'line-width', f.shape.width)
+        }
+      })
+    })
+
+    prevRegionsRef.current = { ...regions }
+    prevFeatsRef.current = JSON.parse(JSON.stringify(regionFeats))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(regions), JSON.stringify(regionFeats), map, ready])
+
+  // Per-feature editing
+  const updateRegionFeat = (key: string, i: number, sf: { filled: FillConfig; shape: ShapeConfig }) =>
+    setRegionFeats(p => ({ ...p, [key]: (p[key] ?? []).map((f, idx) => idx === i ? { ...f, ...sf } : f) }))
+  const toggleRegionFeat = (key: string, i: number) =>
+    setRegionFeats(p => ({ ...p, [key]: (p[key] ?? []).map((f, idx) => idx === i ? { ...f, enabled: !f.enabled } : f) }))
+  const setAllRegionFeats = (key: string, enabled: boolean) =>
+    setRegionFeats(p => ({ ...p, [key]: (p[key] ?? []).map(f => ({ ...f, enabled })) }))
+
+  // Group-level editing (applies to all features in the region)
+  const setGroupFillColor = (key: string, color: string) => {
+    setRegionGroup(p => ({ ...p, [key]: { ...p[key], fillCol: color } }))
+    setRegionFeats(p => ({ ...p, [key]: (p[key] ?? []).map(f => ({ ...f, filled: { ...f.filled, color } })) }))
+  }
+  const setGroupShapeEnabled = (key: string, v: boolean) => {
+    setRegionGroup(p => ({ ...p, [key]: { ...p[key], shapeEnabled: v } }))
+    setRegionFeats(p => ({ ...p, [key]: (p[key] ?? []).map(f => ({ ...f, shape: { ...f.shape, enabled: v } })) }))
+  }
+  const setGroupShapeColor = (key: string, color: string) => {
+    setRegionGroup(p => ({ ...p, [key]: { ...p[key], shapeCol: color } }))
+    setRegionFeats(p => ({ ...p, [key]: (p[key] ?? []).map(f => ({ ...f, shape: { ...f.shape, color } })) }))
+  }
+  const setGroupShapeWidth = (key: string, width: number) => {
+    setRegionGroup(p => ({ ...p, [key]: { ...p[key], shapeWidth: width } }))
+    setRegionFeats(p => ({ ...p, [key]: (p[key] ?? []).map(f => ({ ...f, shape: { ...f.shape, width } })) }))
+  }
 
   const addFromSuggestion = (s: CountrySuggestion) => {
     if (countries.some(c => c.iso3 === s.iso3)) return
@@ -675,44 +702,65 @@ export default function BordersModule() {
         >
           <div style={{display:'flex',flexDirection:'column',gap:6}}>
             {REGION_DEFS.map(def => {
-              const feats = regionFeatures[def.key] ?? []
-              const sel = regionSelected[def.key] ?? feats
-              const dropOpen = openRegionDrop.has(def.key)
+              const feats = regionFeats[def.key] ?? []
+              const g = regionGroup[def.key]
+              const onCount = feats.filter(f => f.enabled).length
+              const allOn = feats.length > 0 && onCount === feats.length
               return (
-                <div key={def.key} className="item-group" style={{background:regions[def.key]?'rgba(0,212,232,0.08)':T.secondary,borderRadius:8,padding:'8px 10px',border:regions[def.key]?'1px solid rgba(0,212,232,0.2)':'1px solid transparent',transition:'all .2s',display:'flex',flexDirection:'column',gap:6}}>
-                  <div style={{display:'flex',alignItems:'center',gap:6}}>
-                    <Toggle label="" value={regions[def.key]} onChange={v => setRegions(p => ({ ...p, [def.key]: v }))}/>
-                    <span style={{width:12,height:12,borderRadius:3,background:def.fill,border:`1.5px solid ${def.line}`,flexShrink:0}}/>
-                    <span style={{fontSize:12,flex:1,fontWeight:regions[def.key]?500:400,color:regions[def.key]?T.fg:T.muted,transition:'all .2s'}}>{def.label}</span>
+                <Accordion
+                  key={def.key}
+                  name={`${def.label}${feats.length ? ` (${onCount}/${feats.length})` : ''}`}
+                  isOpen={openReg.has(def.key)}
+                  onToggle={() => togReg(def.key)}
+                  extra={
+                    <div style={{display:'flex',alignItems:'center',gap:6}} onClick={e => e.stopPropagation()}>
+                      <span style={{width:12,height:12,borderRadius:3,background:def.fill,border:`1.5px solid ${def.line}`,flexShrink:0}}/>
+                      <Toggle label="" value={!!regions[def.key]} onChange={v => setRegions(p => ({ ...p, [def.key]: v }))}/>
+                    </div>
+                  }
+                >
+                  {/* Group controls */}
+                  <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                    <span style={{fontSize:11,color:T.muted,whiteSpace:'nowrap'}}>Fill:</span>
+                    <ColorPicker color={g.fillCol} onChange={c => setGroupFillColor(def.key, c)}/>
                     {feats.length > 0 && (
                       <button
-                        onClick={() => toggleRegionDrop(def.key)}
-                        title="Filtrează"
-                        style={{display:'flex',alignItems:'center',gap:3,background:'none',border:'none',cursor:'pointer',color:T.muted,fontSize:10,padding:'2px 4px'}}
-                        className="rm-btn"
-                      >
-                        <span>{sel.length}/{feats.length}</span>
-                        <span style={{transform:dropOpen?'rotate(180deg)':'none',transition:'transform .2s',display:'inline-flex'}}>{I.chevron(12)}</span>
-                      </button>
+                        onClick={() => setAllRegionFeats(def.key, !allOn)}
+                        style={{marginLeft:'auto',fontSize:10,background:allOn?'rgba(255,75,75,0.12)':'rgba(0,212,232,0.12)',color:allOn?'#ff4b4b':T.primary,border:'none',padding:'4px 8px',borderRadius:6,cursor:'pointer'}}
+                        className="sel-all"
+                      >{allOn ? 'Deselect All' : 'Select All'}</button>
                     )}
                   </div>
-                  {dropOpen && feats.length > 0 && (
-                    <div style={{display:'flex',flexDirection:'column',gap:4,paddingLeft:4,borderTop:`1px solid ${T.glassBorder}`,paddingTop:6}}>
-                      <div style={{display:'flex',gap:6,marginBottom:2}}>
-                        <button onClick={() => selectAllRegionFeatures(def.key)} style={{fontSize:10,background:'rgba(0,212,232,0.12)',color:T.primary,border:'none',padding:'3px 8px',borderRadius:6,cursor:'pointer'}} className="sel-all">Select All</button>
-                        <button onClick={() => deselectAllRegionFeatures(def.key)} style={{fontSize:10,background:'rgba(255,75,75,0.12)',color:'#ff4b4b',border:'none',padding:'3px 8px',borderRadius:6,cursor:'pointer'}} className="sel-all">Deselect All</button>
-                      </div>
-                      <div style={{display:'flex',flexDirection:'column',gap:4,maxHeight:180,overflowY:'auto'}}>
-                        {feats.map(name => (
-                          <label key={name} style={{display:'flex',alignItems:'center',gap:8,fontSize:12,cursor:'pointer',color:sel.includes(name)?T.fg:T.muted}}>
-                            <input type="checkbox" checked={sel.includes(name)} onChange={() => toggleRegionFeature(def.key, name)} style={{accentColor:T.primary,cursor:'pointer'}}/>
-                            <span>{name}</span>
-                          </label>
-                        ))}
-                      </div>
+                  <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                    <Toggle label="" value={g.shapeEnabled} onChange={v => setGroupShapeEnabled(def.key, v)}/>
+                    <span style={{fontSize:11,color:T.muted,whiteSpace:'nowrap'}}>Outline:</span>
+                    <ColorPicker color={g.shapeCol} onChange={c => setGroupShapeColor(def.key, c)}/>
+                    <input
+                      type="range" min={1} max={10} step={0.5} value={g.shapeWidth}
+                      onChange={e => setGroupShapeWidth(def.key, Number(e.target.value))}
+                      style={{flex:1,accentColor:T.primary,cursor:'pointer',height:4}}
+                    />
+                    <span style={{fontSize:11,color:T.muted,minWidth:30,textAlign:'right'}}>{g.shapeWidth}px</span>
+                  </div>
+
+                  {/* Per-feature list */}
+                  {feats.length > 0 && (
+                    <div style={{display:'flex',flexDirection:'column',gap:6,maxHeight:320,overflowY:'auto'}}>
+                      {feats.map((f, i) => (
+                        <div key={f.name} className="item-group" style={{background:f.enabled?'rgba(0,212,232,0.08)':T.secondary,borderRadius:8,padding:'8px 10px',border:f.enabled?'1px solid rgba(0,212,232,0.2)':'1px solid transparent',transition:'all .2s',display:'flex',flexDirection:'column',gap:6}}>
+                          <div style={{display:'flex',alignItems:'center',gap:6}}>
+                            <Toggle label="" value={f.enabled} onChange={() => toggleRegionFeat(def.key, i)}/>
+                            <span style={{fontSize:12,flex:1,fontWeight:f.enabled?500:400,color:f.enabled?T.fg:T.muted,transition:'all .2s'}}>{f.name}</span>
+                          </div>
+                          <ShapeFillCtrl
+                            s={{ filled: f.filled, shape: f.shape }}
+                            onChange={sf => updateRegionFeat(def.key, i, sf)}
+                          />
+                        </div>
+                      ))}
                     </div>
                   )}
-                </div>
+                </Accordion>
               )
             })}
           </div>
