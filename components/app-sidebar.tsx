@@ -10,6 +10,7 @@ import SatelliteControls, { type SatelliteSettings } from '@/components/satellit
 import StbRoutesModule from '@/components/modules/stb-routes'
 import RoutePlannerModule from '@/components/modules/route-planner'
 import InfrastructureModule from '@/components/modules/infrastructure'
+import TrainsModule from '@/components/modules/trains'
 import BordersModule from '@/components/modules/borders'
 import PhotoOverlayModule from '@/components/modules/photo-overlay'
 import LayoutModule from '@/components/modules/layout'
@@ -259,6 +260,7 @@ export default function AppSidebar({ mapStyle, onSetMapStyle, onZoomIn, onZoomOu
         <StbRoutesModule/>
         <RoutePlannerModule/>
         <InfrastructureModule/>
+        <TrainsModule/>
         <BordersModule/>
         <PhotoOverlayModule/>
         <LayoutModule/>
