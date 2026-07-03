@@ -264,15 +264,15 @@ export default function InfrastructureModule() {
       const shadowId  = `road-${r.id}-shadow`
       const outlineId = `road-${r.id}-outline`
 
-      // Case-insensitive: DEx12 vs DEX12, also accept "E81" → "E 81" for int_ref
-      const nameLower = r.name.toLowerCase()
-      const intRefLower = nameLower.replace(/^(e)(\d)/, '$1 $2')
+      // Match exact în all_refs (format ",REF1,REF2,"); acceptă și "E81" → "E 81"
+      const nameUpper = r.name.toUpperCase()
+      const intRefUpper = nameUpper.replace(/^(E)(\d)/, '$1 $2')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const allRefsExpr: any[] = ['string', ['coalesce', ['get', 'all_refs'], '']]
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const filter: any[] = ['any',
-        ['==', ['downcase', ['get', 'ref']],     nameLower],
-        ['==', ['downcase', ['get', 'nat_ref']], nameLower],
-        ['==', ['downcase', ['get', 'int_ref']], nameLower],
-        ['==', ['downcase', ['get', 'int_ref']], intRefLower],
+        ['in', `,${nameUpper},`,   allRefsExpr],
+        ['in', `,${intRefUpper},`, allRefsExpr],
       ]
 
       const isNew          = !p
@@ -370,14 +370,12 @@ export default function InfrastructureModule() {
       if (existingNamesLower.has(token.toLowerCase())) return
       if (firstToken) {
         firstToken = false
-        const tl = token.toLowerCase()
-        const intRefLower = tl.replace(/^(e)(\d)/, '$1 $2')
+        const tu = token.toUpperCase()
+        const intRefUpper = tu.replace(/^(E)(\d)/, '$1 $2')
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const matches = featuresRef.current.filter((f: any) => {
-          const ref  = (f.properties?.ref     || '').toLowerCase()
-          const nat  = (f.properties?.nat_ref || '').toLowerCase()
-          const intR = (f.properties?.int_ref || '').toLowerCase()
-          return ref === tl || nat === tl || intR === tl || intR === intRefLower
+          const allRefs = (f.properties?.all_refs || '')
+          return allRefs.includes(`,${tu},`) || allRefs.includes(`,${intRefUpper},`)
         })
         setDebug(prev => ({ ...(prev ?? { sourceLoaded: false, totalFeatures: 0 }), lastAdd: token, filterMatches: matches.length }))
       }
