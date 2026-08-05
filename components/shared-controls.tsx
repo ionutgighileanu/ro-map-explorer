@@ -123,13 +123,6 @@ export function PointCtrl({ s, onChange }: { s: PointStyle; onChange: (s: PointS
       <div style={{display:'flex',alignItems:'center',gap:8}}><ColorPicker color={s.color} onChange={c=>u('color',c)} label="Color"/></div>
       <SliderRow label="Size" value={s.size} onChange={v=>u('size',v)} min={1} max={100}/>
       <div style={innerBox}>
-        <Toggle label="Shadow" value={s.shadow} onChange={v=>u('shadow',v)}/>
-        {s.shadow && <>
-          <SliderRow label="Blur" value={s.shadowBlur} onChange={v=>u('shadowBlur',v)} min={0} max={30}/>
-          <div style={{display:'flex',alignItems:'center',gap:8}}><ColorPicker color={s.shadowColor} onChange={c=>u('shadowColor',c)} label="Color"/></div>
-        </>}
-      </div>
-      <div style={innerBox}>
         <Toggle label="Outline" value={s.outlineOn} onChange={v=>u('outlineOn',v)}/>
         {s.outlineOn && <>
           <div style={{display:'flex',alignItems:'center',gap:8}}><ColorPicker color={s.outlineColor} onChange={c=>u('outlineColor',c)} label="Color"/></div>
@@ -146,13 +139,6 @@ export function LineCtrl({ s, onChange }: { s: LineStyle; onChange: (s: LineStyl
     <>
       <div style={{display:'flex',alignItems:'center',gap:8}}><ColorPicker color={s.color} onChange={c=>u('color',c)} label="Line Color"/></div>
       <SliderRow label="Width" value={s.width} onChange={v=>u('width',v)} min={1} max={12}/>
-      <div style={innerBox}>
-        <Toggle label="Shadow" value={s.shadow} onChange={v=>u('shadow',v)}/>
-        {s.shadow && <>
-          <SliderRow label="Blur" value={s.shadowBlur} onChange={v=>u('shadowBlur',v)} min={0} max={20}/>
-          <div style={{display:'flex',alignItems:'center',gap:8}}><ColorPicker color={s.shadowColor} onChange={c=>u('shadowColor',c)} label="Color"/></div>
-        </>}
-      </div>
       <div style={innerBox}>
         <Toggle label="Outline" value={s.outlineOn} onChange={v=>u('outlineOn',v)}/>
         {s.outlineOn && <>
